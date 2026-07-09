@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>UFC KB — Assistant</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link
+  href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=Barlow:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap"
+  rel="stylesheet"
+/>
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+
+<header class="statusbar">
+  <div class="statusbar__brand">
+    <span class="statusbar__mark">UFC KB</span>
+    <span class="statusbar__divider">&middot;</span>
+    <span class="statusbar__label">ASSISTANT</span>
+  </div>
+  <div class="statusbar__chip" id="status-chip" data-state="idle">
+    <span class="statusbar__dot"></span>
+    <span id="status-text">READY</span>
+  </div>
+</header>
+
+<main class="arena">
+  <section class="transcript" id="transcript">
+    <div class="hero" id="hero">
+      <p class="hero__eyebrow">TALE OF THE TAPE</p>
+      <h1 class="hero__title">Ask the knowledge base.</h1>
+      <p class="hero__sub">Grounded answers only — every reply cites the exact source chunks it came from.</p>
+      <div class="chips" id="suggested-chips">
+        <button class="chip" type="button" data-q="Who is the current heavyweight champion?">Heavyweight champion?</button>
+        <button class="chip" type="button" data-q="What are the UFC weight classes?">Weight classes</button>
+        <button class="chip" type="button" data-q="How is a fight scored?">Scoring rules</button>
+        <button class="chip" type="button" data-q="When was the UFC founded?">UFC history</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<form class="inputbar" id="ask-form" autocomplete="off">
+  <input
+    class="inputbar__field"
+    id="question-input"
+    type="text"
+    placeholder="Ask about fighters, rules, weight classes…"
+    maxlength="300"
+    autofocus
+  />
+  <button class="inputbar__submit" type="submit" aria-label="Send">
+    <span>ASK</span>
+  </button>
+</form>
+
+<template id="tpl-turn">
+  <article class="turn">
+    <div class="turn__you">
+      <span class="turn__you-label">YOU</span>
+      <span class="turn__you-text"></span>
+    </div>
+    <div class="turn__bot">
+      <div class="turn__bot-text"></div>
+      <div class="turn__sources" hidden>
+        <div class="turn__sources-label">SOURCES</div>
+        <div class="turn__sources-list"></div>
+      </div>
+    </div>
+  </article>
+</template>
+
+<template id="tpl-source-row">
+  <div class="srow">
+    <span class="srow__name"></span>
+    <span class="srow__bar"><span class="srow__bar-fill"></span></span>
+    <span class="srow__score"></span>
+  </div>
+</template>
+
+<script src="/app.js"></script>
+</body>
+</html>
