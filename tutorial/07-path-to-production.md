@@ -10,7 +10,7 @@ one-to-one; only the containers change.
 |---|---|---|
 | `knowledge-base/*.md` folder | A `documents` table (title, source_type, content, active) | Docs get CRUD in an admin panel instead of file edits |
 | Chunks inside `vector-store.json` | A `chunks` table (document_id, chunk_text, `embedding vector(768)`, token_count) | Same 768-dim vectors — chosen here deliberately so they carry over |
-| `python ingest.py` | A `reindex` admin endpoint | Triggered after a doc edit; re-embeds only the changed document |
+| `python ingest.py` | A `reindex` admin endpoint | Triggered after a doc edit; re-embeds only the changed document — the prototype already does this (content-hash based, see chapter 3) |
 | Brute-force cosine loop in `chat.py` | pgvector similarity query (`ORDER BY embedding <=> $1 LIMIT 4`) | Same math, done in Postgres with an index |
 | Terminal input loop | Web/app/chat-widget frontend → backend → this retrieval logic | The retrieval logic is called from whatever channel your users are on |
 | Fixed "I don't know" string | Escalation: open a support ticket for a human | The human-in-the-loop guarantee for low-confidence answers |

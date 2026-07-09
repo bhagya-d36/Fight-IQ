@@ -2,18 +2,20 @@
 
 ## The knobs
 
-All in the constants at the top of each file:
+Defaults live in `config.py`; override any of them via `.env` (see
+`.env.example`) without touching code:
 
-| Knob | File | Default | Effect of raising it | Effect of lowering it |
-|---|---|---|---|---|
-| `TOP_K` | chat.py | 4 | More context per answer; better for questions spanning topics; more tokens/cost | Tighter, cheaper prompts; may miss a needed chunk |
-| `MIN_SIMILARITY` | chat.py | 0.35 | Stricter: more "I don't know", fewer wrong-context answers | Looser: answers more questions, higher risk of answering from a barely-related chunk |
-| `MAX_CHUNK_CHARS` | ingest.py | 1500 | Bigger chunks: more context each, but blurrier vectors | Sharper matching, but facts may split apart |
-| `temperature` | chat.py | 0.2 | More varied phrasing | More deterministic (0 = most rigid) |
-| `EMBEDDING_DIM` | ingest.py | 768 | Marginally better matching, bigger store | Smaller store; don't go below ~256 |
+| Knob | Default | Effect of raising it | Effect of lowering it |
+|---|---|---|---|
+| `TOP_K` | 4 | More context per answer; better for questions spanning topics; more tokens/cost | Tighter, cheaper prompts; may miss a needed chunk |
+| `MIN_SIMILARITY` | 0.35 | Stricter: more "I don't know", fewer wrong-context answers | Looser: answers more questions, higher risk of answering from a barely-related chunk |
+| `MAX_CHUNK_CHARS` | 1500 | Bigger chunks: more context each, but blurrier vectors | Sharper matching, but facts may split apart |
+| `temperature` (in `rag.py`, not env-driven) | 0.2 | More varied phrasing | More deterministic (0 = most rigid) |
+| `EMBEDDING_DIM` | 768 | Marginally better matching, bigger store | Smaller store; don't go below ~256 |
 
-Changing anything in `ingest.py` requires re-running `python ingest.py`.
-Changing `chat.py` knobs takes effect on the next run of the chat.
+Changing `MAX_CHUNK_CHARS`, the embedding model, or `EMBEDDING_DIM` requires
+`python ingest.py --force` (see chapter 3). `TOP_K`/`MIN_SIMILARITY` are
+query-time only — just restart `chat.py`/`server.py` after editing `.env`.
 
 ## Diagnosing a bad answer — always in this order
 
@@ -58,9 +60,12 @@ costs..."), so the model can't cross-wire them.
 ### `429` / rate-limit or quota errors
 
 Free-tier Gemini limits requests per minute. Each chat turn = 1 embedding call
-+ 1 generation call; ingest = 1 call per 50 chunks. Wait a minute, or enable
-billing on the key. If ingest fails midway, just re-run it — it rebuilds from
-scratch.
++ 1 generation call; ingest = 1 call per 50 chunks. The client (`rag.make_client()`)
+already retries 429s and transient network errors a few times with backoff, so
+brief blips resolve on their own; a persistent `429` means you need to wait
+longer or enable billing on the key. If ingest fails partway through, just
+re-run it — unaffected files are reused from the cache (chapter 3), so you
+only pay for the files still pending.
 
 ### Answers are slow
 

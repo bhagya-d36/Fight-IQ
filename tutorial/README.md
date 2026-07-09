@@ -15,7 +15,7 @@ Written for readers comfortable running Python, new to RAG.
 | 3 | [03-how-ingestion-works.md](03-how-ingestion-works.md) | What `ingest.py` does: chunking, embedding, the vector store |
 | 4 | [04-how-chat-works.md](04-how-chat-works.md) | What `chat.py` does: retrieval, the grounded prompt, guardrails |
 | 5 | [05-writing-kb-files.md](05-writing-kb-files.md) | How to author knowledge-base files that retrieve well |
-| 6 | [06-tuning-and-troubleshooting.md](06-tuning-and-troubleshooting.md) | The knobs (TOP_K, threshold, chunk size) and common failures |
+| 6 | [06-tuning-and-troubleshooting.md](06-tuning-and-troubleshooting.md) | The knobs (TOP_K, threshold, chunk size — now in `config.py`/`.env`) and common failures |
 | 7 | [07-path-to-production.md](07-path-to-production.md) | Mapping this prototype onto a production architecture (real database, real app) |
 
 ## The system in one paragraph
