@@ -36,10 +36,34 @@ Rules:
 - Be concise and clear."""
 
 
+def validate_store(store: dict) -> None:
+    """Raise ValueError with an actionable message if the store looks unusable."""
+    entries = store.get("entries")
+    if not entries:
+        raise ValueError("vector-store.json has no entries. Run `python ingest.py --force`.")
+    if store.get("model") != config.EMBEDDING_MODEL or store.get("dim") != config.EMBEDDING_DIM:
+        raise ValueError(
+            f"vector-store.json was built with model={store.get('model')!r} "
+            f"dim={store.get('dim')!r}, but the app is configured for "
+            f"model={config.EMBEDDING_MODEL!r} dim={config.EMBEDDING_DIM!r}. "
+            "Run `python ingest.py --force` to rebuild it."
+        )
+    if len(entries[0].get("embedding", [])) != store["dim"]:
+        raise ValueError(
+            "vector-store.json entries don't match its declared dim. "
+            "Run `python ingest.py --force` to rebuild it."
+        )
+
+
 def load_store() -> dict:
     if not STORE_FILE.exists():
         raise FileNotFoundError("vector-store.json not found. Run `python ingest.py` first.")
-    return json.loads(STORE_FILE.read_text(encoding="utf-8"))
+    try:
+        store = json.loads(STORE_FILE.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as err:
+        raise ValueError("vector-store.json is corrupt. Run `python ingest.py --force`.") from err
+    validate_store(store)
+    return store
 
 
 def make_client() -> genai.Client:
@@ -106,7 +130,7 @@ def answer(client: genai.Client, question: str, hits: list[dict]) -> str:
             temperature=0.2,
         ),
     )
-    return response.text
+    return response.text or "The model returned an empty response. Please try asking again."
 
 
 def answer_stream(client: genai.Client, question: str, hits: list[dict]):

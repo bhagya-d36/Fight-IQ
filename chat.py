@@ -5,13 +5,13 @@ Run `python ingest.py` first, then:  python chat.py
 
 import sys
 
-from google.genai import types
+from google.genai import errors, types
 
 import rag  # importing rag loads config, which loads .env
 
 try:
     store = rag.load_store()
-except FileNotFoundError as err:
+except (FileNotFoundError, ValueError) as err:
     sys.exit(str(err))
 
 try:
@@ -37,7 +37,8 @@ def ask(question: str) -> tuple[str, list[dict]]:
         )
     context = rag.build_context(hits)
     response = chat.send_message(f"CONTEXT:\n{context}\n\nQUESTION: {question}")
-    return response.text, hits
+    text = response.text or "The model returned an empty response. Please try asking again."
+    return text, hits
 
 
 def main() -> None:
@@ -59,8 +60,10 @@ def main() -> None:
             if hits:
                 sources = list(dict.fromkeys(f"{h['source']} ({h['score']:.2f})" for h in hits))
                 print(f"      [retrieved: {', '.join(sources)}]\n")
-        except Exception as err:  # keep the chat loop alive on API errors
-            print(f"Error: {err}")
+        except errors.APIError as err:  # retries already exhausted by the SDK
+            print(f"\n[API error {err.code}] {err.message}\nCheck your key/quota and try again.\n")
+        except Exception as err:  # keep the chat loop alive on anything else
+            print(f"\n[Unexpected {type(err).__name__}] {err}\n")
 
 
 if __name__ == "__main__":
