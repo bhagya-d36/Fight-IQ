@@ -12,16 +12,19 @@ from pathlib import Path
 from google import genai
 from google.genai import types
 
+import config
 from net_fix import prefer_ipv4
 
 prefer_ipv4()
 
 BASE_DIR = Path(__file__).resolve().parent
 STORE_FILE = BASE_DIR / "vector-store.json"
-CHAT_MODEL = "gemini-2.5-flash"
-EMBEDDING_MODEL = "gemini-embedding-001"
-TOP_K = 4  # how many chunks to retrieve per question
-MIN_SIMILARITY = 0.35  # below this, treat the KB as having no answer
+
+# Tunables live in config.py (env-overridable); aliased here for convenience.
+CHAT_MODEL = config.CHAT_MODEL
+EMBEDDING_MODEL = config.EMBEDDING_MODEL
+TOP_K = config.TOP_K
+MIN_SIMILARITY = config.MIN_SIMILARITY
 
 SYSTEM_INSTRUCTION = """You are a knowledgeable UFC/MMA assistant that answers questions using only the provided knowledge base.
 
@@ -53,7 +56,13 @@ def cosine_similarity(a: list[float], b: list[float]) -> float:
     return dot / (norm_a * norm_b)
 
 
-def retrieve(store: dict, client: genai.Client, question: str) -> list[dict]:
+def retrieve(
+    store: dict,
+    client: genai.Client,
+    question: str,
+    top_k: int = TOP_K,
+    min_similarity: float = MIN_SIMILARITY,
+) -> list[dict]:
     res = client.models.embed_content(
         model=EMBEDDING_MODEL,
         contents=[question],
@@ -68,7 +77,7 @@ def retrieve(store: dict, client: genai.Client, question: str) -> list[dict]:
         for entry in store["entries"]
     ]
     scored.sort(key=lambda e: e["score"], reverse=True)
-    return [e for e in scored[:TOP_K] if e["score"] >= MIN_SIMILARITY]
+    return [e for e in scored[:top_k] if e["score"] >= min_similarity]
 
 
 def build_context(hits: list[dict]) -> str:
