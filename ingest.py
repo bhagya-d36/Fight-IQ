@@ -12,19 +12,14 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from dotenv import load_dotenv
-
+import config
 from net_fix import prefer_ipv4
 
-load_dotenv()
 prefer_ipv4()
 
 BASE_DIR = Path(__file__).resolve().parent
 KB_DIR = BASE_DIR / "knowledge-base"
 STORE_FILE = BASE_DIR / "vector-store.json"
-EMBEDDING_MODEL = "gemini-embedding-001"
-EMBEDDING_DIM = 768  # plenty for a small KB; also the standard pgvector column size
-MAX_CHUNK_CHARS = 1500  # ~350-400 tokens per chunk
 
 DRY_RUN = "--dry-run" in sys.argv
 
@@ -32,7 +27,7 @@ if not os.environ.get("GEMINI_API_KEY") and not DRY_RUN:
     sys.exit("Missing GEMINI_API_KEY. Create a .env file (see .env.example).")
 
 
-def chunk_markdown(file_name: str, text: str) -> list[str]:
+def chunk_markdown(file_name: str, text: str, max_chars: int = config.MAX_CHUNK_CHARS) -> list[str]:
     """Split a markdown document into chunks.
 
     Strategy: split on "## " headings so each chunk is one coherent topic,
@@ -57,13 +52,13 @@ def chunk_markdown(file_name: str, text: str) -> list[str]:
         heading = heading_match.group(1).strip() if heading_match else ""
         prefix = f"{doc_title} — {heading}\n\n" if heading else f"{doc_title}\n\n"
 
-        if len(body) <= MAX_CHUNK_CHARS:
+        if len(body) <= max_chars:
             chunks.append(prefix + body)
             continue
         # Oversized section: pack paragraphs greedily up to the limit.
         current = ""
         for para in re.split(r"\n\s*\n", body):
-            if current and len(current) + len(para) > MAX_CHUNK_CHARS:
+            if current and len(current) + len(para) > max_chars:
                 chunks.append(prefix + current.strip())
                 current = ""
             current += para + "\n\n"
@@ -97,15 +92,15 @@ def main() -> None:
 
     client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
-    print(f"Embedding {len(entries)} chunks with {EMBEDDING_MODEL}...")
+    print(f"Embedding {len(entries)} chunks with {config.EMBEDDING_MODEL}...")
     BATCH = 50
     for i in range(0, len(entries), BATCH):
         batch = entries[i : i + BATCH]
         res = client.models.embed_content(
-            model=EMBEDDING_MODEL,
+            model=config.EMBEDDING_MODEL,
             contents=[e["text"] for e in batch],
             config=types.EmbedContentConfig(
-                output_dimensionality=EMBEDDING_DIM,
+                output_dimensionality=config.EMBEDDING_DIM,
                 task_type="RETRIEVAL_DOCUMENT",
             ),
         )
@@ -116,8 +111,8 @@ def main() -> None:
     STORE_FILE.write_text(
         json.dumps(
             {
-                "model": EMBEDDING_MODEL,
-                "dim": EMBEDDING_DIM,
+                "model": config.EMBEDDING_MODEL,
+                "dim": config.EMBEDDING_DIM,
                 "createdAt": datetime.now(timezone.utc).isoformat(),
                 "entries": entries,
             },

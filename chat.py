@@ -5,13 +5,9 @@ Run `python ingest.py` first, then:  python chat.py
 
 import sys
 
-from dotenv import load_dotenv
-
-load_dotenv()
-
 from google.genai import types
 
-import rag
+import rag  # importing rag loads config, which loads .env
 
 try:
     store = rag.load_store()
