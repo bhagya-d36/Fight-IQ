@@ -72,9 +72,12 @@ Everything is written to `vector-store.json`:
 
 ```json
 {
+  "version": 2,
   "model": "gemini-embedding-001",
   "dim": 768,
+  "chunkChars": 1500,
   "createdAt": "...",
+  "files": { "example.md": "<sha256 of the file's content>" },
   "entries": [
     { "source": "example.md", "text": "Example Topic — ...", "embedding": [0.01, ...] }
   ]
@@ -86,14 +89,23 @@ A JSON file *is* a legitimate vector store at this scale: a few dozen chunks
 have thousands of chunks, concurrent users, or need to update single
 documents without re-reading everything — see chapter 7.
 
-## When to re-run ingest
+## Incremental re-ingestion
 
-| You changed... | Re-run ingest? |
-|---|---|
-| Any file in `knowledge-base/` | **Yes** |
-| `TOP_K`, `MIN_SIMILARITY` in `chat.py` | No — those are query-time knobs |
-| `MAX_CHUNK_CHARS` or the chunking code | **Yes** |
-| The embedding model or dimensions | **Yes** — old and new vectors are incompatible |
+`ingest.py` hashes each KB file's content and stores the hashes under `files`.
+On the next run, a file whose hash hasn't changed has its existing chunks and
+embeddings **reused** instead of re-embedded — only new or edited files cost
+an API call. This makes `python ingest.py` cheap to re-run habitually.
+
+| You changed... | Re-run ingest? | Cost |
+|---|---|---|
+| A file's content in `knowledge-base/` | **Yes** | Only that file re-embeds |
+| `TOP_K`, `MIN_SIMILARITY` (in `config.py`/`.env`) | No — those are query-time knobs | — |
+| `MAX_CHUNK_CHARS` or the chunking code | **Yes** | Full rebuild (chunk boundaries changed) |
+| The embedding model or dimensions | **Yes** | Full rebuild — old and new vectors are incompatible |
+
+`python ingest.py --force` always rebuilds everything from scratch, ignoring
+the cache — use it after a chunking-logic or model change, or if you suspect
+the store is out of sync.
 
 ---
 

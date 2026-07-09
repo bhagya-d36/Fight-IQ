@@ -13,7 +13,11 @@ pip install -r requirements.txt
 ```
 
 Then copy `.env.example` to `.env` and put your Gemini API key in it
-(free key: https://aistudio.google.com/apikey).
+(free key: https://aistudio.google.com/apikey). `.env.example` also lists
+optional overrides (model names, `TOP_K`, `MIN_SIMILARITY`, timeouts, etc.) —
+defaults live in `config.py`.
+
+For development, install test/lint tooling too: `pip install -r requirements-dev.txt`.
 
 ## Usage
 
@@ -21,9 +25,12 @@ Then copy `.env.example` to `.env` and put your Gemini API key in it
 python ingest.py            # embed the knowledge base -> vector-store.json
 python chat.py               # start chatting (terminal)
 python ingest.py --dry-run   # preview chunking without API calls
+python ingest.py --force     # re-embed every file, ignoring the cache
 ```
 
-Re-run `python ingest.py` every time you edit anything in `knowledge-base/`.
+Re-run `python ingest.py` every time you edit anything in `knowledge-base/` —
+it hashes each file and only re-embeds ones that actually changed, so this is
+cheap even with a large knowledge base.
 
 ## Web UI
 
@@ -42,13 +49,28 @@ on any host that has `GEMINI_API_KEY` set and `vector-store.json` present.
 
 | File | Role |
 |---|---|
-| `ingest.py` | Chunk + embed the knowledge base into `vector-store.json` |
+| `ingest.py` | Chunk + embed the knowledge base into `vector-store.json` (incremental, `--force` to rebuild) |
 | `rag.py` | Shared retrieval + grounded-answer logic used by both entry points |
+| `config.py` | All tunable settings, overridable via env vars (see `.env.example`) |
 | `chat.py` | Terminal chat: retrieve top chunks, grounded Gemini reply |
 | `server.py` | FastAPI app: `/api/ask`, `/api/ask/stream` (SSE), serves `web/` |
 | `web/` | Hand-built frontend (`index.html`, `styles.css`, `app.js`) |
-| `requirements.txt` | Dependencies (`google-genai`, `python-dotenv`, `fastapi`, `uvicorn`) |
+| `tests/` | Offline pytest suite (`pytest -q`) — no network calls |
+| `requirements.txt` | Pinned runtime dependencies |
+| `requirements-dev.txt` | Runtime deps plus `pytest`/`ruff` for development |
 | `knowledge-base/` | The knowledge base — add your own `.md` files here |
+
+## Development
+
+```
+pip install -r requirements-dev.txt
+pytest -q          # run the test suite (offline, no API key needed)
+ruff check .       # lint
+```
+
+If this folder lives inside a cloud-synced directory (OneDrive, Dropbox), be
+aware the sync client can occasionally lock `.git` files mid-operation —
+retry the git command if that happens.
 
 ## Knowledge base structure
 

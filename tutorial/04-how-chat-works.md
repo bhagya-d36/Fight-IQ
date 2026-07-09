@@ -24,7 +24,8 @@ This is a brute-force scan — the question's vector is compared against every
 stored chunk. At this scale it takes microseconds. (pgvector does the same
 thing with an index once you have thousands of chunks.)
 
-Two guards work together:
+Two guards work together (defaults live in `config.py`, overridable via
+`.env` — see `TOP_K`/`MIN_SIMILARITY` in `.env.example`):
 
 - **`TOP_K = 4`** caps how much context we send (cost + focus).
 - **`MIN_SIMILARITY = 0.35`** is the "actually relevant" floor. If *nothing*

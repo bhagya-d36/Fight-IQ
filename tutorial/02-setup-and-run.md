@@ -15,7 +15,11 @@
 GEMINI_API_KEY=AIza...your-actual-key
 ```
 
-`.env` is gitignored — the key never leaves your machine.
+`.env` is gitignored — the key never leaves your machine. `.env.example`
+lists further optional overrides (model names, retrieval knobs, timeouts) —
+uncomment any you want; unset ones fall back to the defaults in `config.py`.
+If your very first API call hangs for ~20 seconds, add `FORCE_IPV4=1` to
+`.env` (see `net_fix.py`).
 
 ## Step 2 — Install dependencies
 
