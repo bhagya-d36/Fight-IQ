@@ -87,10 +87,12 @@ def main() -> None:
         print(f"\nDry run: {len(entries)} chunks total. No embeddings created.")
         return
 
-    from google import genai
+    # Imported lazily so --dry-run works without the SDK ever needing a key.
     from google.genai import types
 
-    client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+    import rag
+
+    client = rag.make_client()  # includes retry/timeout settings
 
     print(f"Embedding {len(entries)} chunks with {config.EMBEDDING_MODEL}...")
     BATCH = 50

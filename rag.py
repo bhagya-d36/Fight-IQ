@@ -46,7 +46,16 @@ def make_client() -> genai.Client:
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         raise RuntimeError("Missing GEMINI_API_KEY. Create a .env file (see .env.example).")
-    return genai.Client(api_key=api_key)
+    # The SDK retries 408/429/5xx and connect/timeout errors with exponential
+    # backoff. Only the initial request is retried for streams — a drop
+    # mid-stream is not.
+    return genai.Client(
+        api_key=api_key,
+        http_options=types.HttpOptions(
+            timeout=config.GEMINI_TIMEOUT_MS,  # milliseconds; per-read for streams
+            retry_options=types.HttpRetryOptions(attempts=config.GEMINI_RETRY_ATTEMPTS),
+        ),
+    )
 
 
 def cosine_similarity(a: list[float], b: list[float]) -> float:
