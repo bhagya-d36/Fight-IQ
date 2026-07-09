@@ -2,9 +2,14 @@
 embeds each chunk with Gemini, and saves everything to vector-store.json.
 
 Re-run this whenever you edit the knowledge base:  python ingest.py
-Preview chunking without API calls:                python ingest.py --dry-run
+Unchanged files are skipped and their existing chunks/embeddings are reused —
+only new or edited files are re-embedded.
+
+Preview chunking without API calls:  python ingest.py --dry-run
+Re-embed everything from scratch:     python ingest.py --force
 """
 
+import hashlib
 import json
 import os
 import re
@@ -20,8 +25,10 @@ prefer_ipv4()
 BASE_DIR = Path(__file__).resolve().parent
 KB_DIR = BASE_DIR / "knowledge-base"
 STORE_FILE = BASE_DIR / "vector-store.json"
+STORE_VERSION = 2
 
 DRY_RUN = "--dry-run" in sys.argv
+FORCE = "--force" in sys.argv
 
 if not os.environ.get("GEMINI_API_KEY") and not DRY_RUN:
     sys.exit("Missing GEMINI_API_KEY. Create a .env file (see .env.example).")
@@ -67,34 +74,38 @@ def chunk_markdown(file_name: str, text: str, max_chars: int = config.MAX_CHUNK_
     return chunks
 
 
-def main() -> None:
-    if not KB_DIR.is_dir():
-        sys.exit(f"Knowledge base folder not found: {KB_DIR}")
-    files = sorted(KB_DIR.glob("*.md"))
-    if not files:
-        sys.exit("No .md files in knowledge-base/. Add some and re-run.")
+def file_sha256(text: str) -> str:
+    """Hash file content (not mtime — cloud-synced folders touch mtimes on their own)."""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
-    entries: list[dict] = []
-    for path in files:
-        chunks = chunk_markdown(path.name, path.read_text(encoding="utf-8"))
-        print(f"{path.name}: {len(chunks)} chunk(s)")
-        entries.extend({"source": path.name, "text": chunk} for chunk in chunks)
 
-    if DRY_RUN:
-        for entry in entries:
-            print(f"\n--- [{entry['source']}] {len(entry['text'])} chars ---")
-            print("\n".join(entry["text"].splitlines()[:3]))
-        print(f"\nDry run: {len(entries)} chunks total. No embeddings created.")
+def load_reusable_store(force: bool) -> dict | None:
+    """Return the existing store if its chunks can be reused as a starting
+    point for incremental re-embedding, else None (triggers a full rebuild).
+    """
+    if force or not STORE_FILE.exists():
+        return None
+    try:
+        store = json.loads(STORE_FILE.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+    if (
+        store.get("version") != STORE_VERSION
+        or store.get("model") != config.EMBEDDING_MODEL
+        or store.get("dim") != config.EMBEDDING_DIM
+        or store.get("chunkChars") != config.MAX_CHUNK_CHARS
+    ):
+        return None
+    return store
+
+
+def embed_entries(client, entries: list[dict]) -> None:
+    """Embed `entries` in place, adding an "embedding" key to each."""
+    if not entries:
         return
-
-    # Imported lazily so --dry-run works without the SDK ever needing a key.
     from google.genai import types
 
-    import rag
-
-    client = rag.make_client()  # includes retry/timeout settings
-
-    print(f"Embedding {len(entries)} chunks with {config.EMBEDDING_MODEL}...")
+    print(f"Embedding {len(entries)} chunk(s) with {config.EMBEDDING_MODEL}...")
     BATCH = 50
     for i in range(0, len(entries), BATCH):
         batch = entries[i : i + BATCH]
@@ -110,19 +121,79 @@ def main() -> None:
             entry["embedding"] = list(embedding.values)
         print(f"  {min(i + BATCH, len(entries))}/{len(entries)}")
 
+
+def main() -> None:
+    if not KB_DIR.is_dir():
+        sys.exit(f"Knowledge base folder not found: {KB_DIR}")
+    files = sorted(KB_DIR.glob("*.md"))
+    if not files:
+        sys.exit("No .md files in knowledge-base/. Add some and re-run.")
+
+    old_store = load_reusable_store(FORCE)
+    old_hashes: dict[str, str] = old_store["files"] if old_store else {}
+    old_entries_by_source: dict[str, list[dict]] = {}
+    for entry in (old_store["entries"] if old_store else []):
+        old_entries_by_source.setdefault(entry["source"], []).append(entry)
+
+    entries: list[dict] = []
+    to_embed: list[dict] = []
+    file_hashes: dict[str, str] = {}
+    reused_files = 0
+    changed_files = 0
+
+    for path in files:
+        text = path.read_text(encoding="utf-8")
+        digest = file_sha256(text)
+        file_hashes[path.name] = digest
+
+        if digest == old_hashes.get(path.name):
+            reused = old_entries_by_source.get(path.name, [])
+            entries.extend(reused)
+            reused_files += 1
+            print(f"{path.name}: unchanged ({len(reused)} chunk(s) reused)")
+        else:
+            chunks = chunk_markdown(path.name, text)
+            new_entries = [{"source": path.name, "text": chunk} for chunk in chunks]
+            entries.extend(new_entries)
+            to_embed.extend(new_entries)
+            changed_files += 1
+            print(f"{path.name}: changed -> {len(chunks)} chunk(s) to embed")
+
+    removed = sorted(set(old_hashes) - {p.name for p in files})
+    for name in removed:
+        print(f"removed: {name}")
+
+    if DRY_RUN:
+        for entry in entries:
+            print(f"\n--- [{entry['source']}] {len(entry['text'])} chars ---")
+            print("\n".join(entry["text"].splitlines()[:3]))
+        print(f"\nDry run: {len(entries)} chunks total. No embeddings created.")
+        return
+
+    import rag  # imported lazily so --dry-run never needs an API key
+
+    client = rag.make_client()
+    embed_entries(client, to_embed)
+
     STORE_FILE.write_text(
         json.dumps(
             {
+                "version": STORE_VERSION,
                 "model": config.EMBEDDING_MODEL,
                 "dim": config.EMBEDDING_DIM,
+                "chunkChars": config.MAX_CHUNK_CHARS,
                 "createdAt": datetime.now(timezone.utc).isoformat(),
+                "files": file_hashes,
                 "entries": entries,
             },
             indent=1,
         ),
         encoding="utf-8",
     )
-    print(f"Done. Wrote {len(entries)} chunks to vector-store.json")
+    print(
+        f"Done. {len(files)} files: {changed_files} re-embedded, {reused_files} reused, "
+        f"{len(removed)} removed -> {len(entries)} chunks."
+    )
 
 
 if __name__ == "__main__":
