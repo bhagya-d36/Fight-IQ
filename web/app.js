@@ -1,16 +1,50 @@
 (() => {
   const form = document.getElementById("ask-form");
   const input = document.getElementById("question-input");
+  const submitBtn = form.querySelector(".inputbar__submit");
   const transcript = document.getElementById("transcript");
   const hero = document.getElementById("hero");
   const chipRow = document.getElementById("suggested-chips");
   const statusChip = document.getElementById("status-chip");
   const statusText = document.getElementById("status-text");
+  const newChatBtn = document.getElementById("new-chat");
   const turnTpl = document.getElementById("tpl-turn");
   const sourceRowTpl = document.getElementById("tpl-source-row");
 
-  function setStatus(state, label) {
-    statusChip.dataset.state = state;
+  const STORAGE_KEY = "fightiq.chat.v1";
+  const MAX_STORED_TURNS = 50;
+
+  function freshState() {
+    return { sessionId: crypto.randomUUID(), turns: [] };
+  }
+
+  function loadState() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed.sessionId !== "string" || !Array.isArray(parsed.turns)) {
+        return null;
+      }
+      return parsed;
+    } catch {
+      return null;
+    }
+  }
+
+  function saveState() {
+    try {
+      const trimmed = { ...state, turns: state.turns.slice(-MAX_STORED_TURNS) };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(trimmed));
+    } catch {
+      // localStorage unavailable (quota, private mode) — degrade to no persistence.
+    }
+  }
+
+  let state = loadState() || freshState();
+
+  function setStatus(statusState, label) {
+    statusChip.dataset.state = statusState;
     statusText.textContent = label;
   }
 
@@ -41,28 +75,55 @@
     return article;
   }
 
+  function renderCompletedTurn(t) {
+    const article = newTurn(t.q);
+    const botText = article.querySelector(".turn__bot-text");
+    const sourcesBox = article.querySelector(".turn__sources");
+    botText.textContent = t.a;
+    renderSources(sourcesBox, t.sources || []);
+    return article;
+  }
+
+  function restoreTranscript() {
+    if (!state.turns.length) return;
+    hero.style.display = "none";
+    for (const t of state.turns) renderCompletedTurn(t);
+    const last = state.turns[state.turns.length - 1];
+    setStatus(last.grounded ? "grounded" : "nomatch", last.grounded ? "GROUNDED" : "NO MATCH");
+    transcript.parentElement.scrollTop = transcript.parentElement.scrollHeight;
+  }
+
   async function askViaJson(question, botText, sourcesBox) {
     const res = await fetch("/api/ask", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question }),
+      body: JSON.stringify({ question, session_id: state.sessionId }),
     });
     const data = await res.json();
+    if (!res.ok) throw new Error(data.answer || "request failed");
     botText.textContent = data.answer;
     renderSources(sourcesBox, data.sources || []);
     setStatus(data.grounded ? "grounded" : "nomatch", data.grounded ? "GROUNDED" : "NO MATCH");
+    return { answer: data.answer, grounded: data.grounded, sources: data.sources || [] };
   }
 
   function askViaStream(question, botText, sourcesBox) {
     return new Promise((resolve, reject) => {
-      const es = new EventSource(`/api/ask/stream?q=${encodeURIComponent(question)}`);
+      const url = `/api/ask/stream?q=${encodeURIComponent(question)}&session_id=${encodeURIComponent(state.sessionId)}`;
+      const es = new EventSource(url);
       let text = "";
+      let sources = [];
+      let grounded = false;
+      let gotSources = false;
       let settled = false;
 
       es.addEventListener("sources", (ev) => {
         const data = JSON.parse(ev.data);
-        renderSources(sourcesBox, data.sources || []);
-        setStatus(data.grounded ? "grounded" : "nomatch", data.grounded ? "GROUNDED" : "NO MATCH");
+        gotSources = true;
+        grounded = !!data.grounded;
+        sources = data.sources || [];
+        renderSources(sourcesBox, sources);
+        setStatus(grounded ? "grounded" : "nomatch", grounded ? "GROUNDED" : "NO MATCH");
       });
 
       es.addEventListener("token", (ev) => {
@@ -76,7 +137,12 @@
       es.addEventListener("done", () => {
         settled = true;
         es.close();
-        resolve();
+        if (!gotSources) {
+          // Server hit an error before emitting "sources" — surface it as a failure.
+          reject(new Error(text || "stream failed"));
+          return;
+        }
+        resolve({ answer: text, grounded, sources });
       });
 
       es.onerror = () => {
@@ -86,37 +152,53 @@
     });
   }
 
-  async function handleAsk(question) {
-    hero.style.display = "none";
-    setStatus("thinking", "THINKING");
-
-    const article = newTurn(question);
+  async function runTurn(question, article) {
     const botText = article.querySelector(".turn__bot-text");
     const sourcesBox = article.querySelector(".turn__sources");
+    const errorBox = article.querySelector(".turn__error");
+    const errorText = errorBox.querySelector(".turn__error-text");
+
+    errorBox.hidden = true;
+    botText.textContent = "";
     botText.classList.add("is-empty");
-
-    input.value = "";
+    setStatus("thinking", "THINKING");
     input.disabled = true;
+    submitBtn.disabled = true;
 
+    let result = null;
     try {
       if (typeof EventSource !== "undefined") {
-        await askViaStream(question, botText, sourcesBox);
+        result = await askViaStream(question, botText, sourcesBox);
       } else {
-        await askViaJson(question, botText, sourcesBox);
+        result = await askViaJson(question, botText, sourcesBox);
       }
-    } catch (err) {
+    } catch {
       try {
-        await askViaJson(question, botText, sourcesBox);
-      } catch (err2) {
-        botText.textContent = "Something went wrong reaching the assistant.";
+        result = await askViaJson(question, botText, sourcesBox);
+      } catch {
+        errorText.textContent = "Something went wrong reaching the assistant.";
+        errorBox.hidden = false;
         setStatus("nomatch", "ERROR");
       }
     } finally {
       botText.classList.remove("is-empty");
       input.disabled = false;
+      submitBtn.disabled = false;
       input.focus();
       transcript.parentElement.scrollTop = transcript.parentElement.scrollHeight;
     }
+
+    if (result) {
+      state.turns.push({ q: question, a: result.answer, grounded: result.grounded, sources: result.sources });
+      saveState();
+    }
+  }
+
+  function handleAsk(question) {
+    hero.style.display = "none";
+    const article = newTurn(question);
+    input.value = "";
+    runTurn(question, article);
   }
 
   form.addEventListener("submit", (ev) => {
@@ -131,4 +213,24 @@
     if (!chip) return;
     handleAsk(chip.dataset.q);
   });
+
+  transcript.addEventListener("click", (ev) => {
+    const retryBtn = ev.target.closest(".turn__retry");
+    if (!retryBtn) return;
+    const article = retryBtn.closest(".turn");
+    const question = article.querySelector(".turn__you-text").textContent;
+    runTurn(question, article);
+  });
+
+  newChatBtn.addEventListener("click", () => {
+    state = freshState();
+    saveState();
+    for (const article of transcript.querySelectorAll(".turn")) article.remove();
+    hero.style.display = "";
+    setStatus("idle", "READY");
+    input.value = "";
+    input.focus();
+  });
+
+  restoreTranscript();
 })();
