@@ -58,13 +58,29 @@
     }
     container.hidden = false;
     label.textContent = "SOURCES";
-    for (const s of sources) {
+    sources.forEach((s, i) => {
       const row = sourceRowTpl.content.cloneNode(true);
+      const srow = row.querySelector(".srow");
+      srow.dataset.index = String(i + 1);
       row.querySelector(".srow__name").textContent = s.source;
       row.querySelector(".srow__score").textContent = s.score.toFixed(2);
       row.querySelector(".srow__bar-fill").style.width = `${Math.round(s.score * 100)}%`;
       list.appendChild(row);
-    }
+    });
+  }
+
+  function escapeHtml(s) {
+    return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+  }
+
+  // Renders the final answer text, linkifying [n] citation markers that fall
+  // within range of the sources list (out-of-range markers stay plain text).
+  function setAnswer(botText, text, sources) {
+    const n = sources.length;
+    botText.innerHTML = escapeHtml(text).replace(/\[(\d+)\]/g, (match, digits) => {
+      const i = parseInt(digits, 10);
+      return i >= 1 && i <= n ? `<button type="button" class="cite" data-index="${i}">[${i}]</button>` : match;
+    });
   }
 
   function newTurn(question) {
@@ -79,8 +95,9 @@
     const article = newTurn(t.q);
     const botText = article.querySelector(".turn__bot-text");
     const sourcesBox = article.querySelector(".turn__sources");
-    botText.textContent = t.a;
-    renderSources(sourcesBox, t.sources || []);
+    const sources = t.sources || [];
+    renderSources(sourcesBox, sources);
+    setAnswer(botText, t.a, sources);
     return article;
   }
 
@@ -101,10 +118,11 @@
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.answer || "request failed");
-    botText.textContent = data.answer;
-    renderSources(sourcesBox, data.sources || []);
+    const sources = data.sources || [];
+    renderSources(sourcesBox, sources);
+    setAnswer(botText, data.answer, sources);
     setStatus(data.grounded ? "grounded" : "nomatch", data.grounded ? "GROUNDED" : "NO MATCH");
-    return { answer: data.answer, grounded: data.grounded, sources: data.sources || [] };
+    return { answer: data.answer, grounded: data.grounded, sources };
   }
 
   function askViaStream(question, botText, sourcesBox) {
@@ -142,6 +160,7 @@
           reject(new Error(text || "stream failed"));
           return;
         }
+        setAnswer(botText, text, sources);
         resolve({ answer: text, grounded, sources });
       });
 
@@ -216,10 +235,23 @@
 
   transcript.addEventListener("click", (ev) => {
     const retryBtn = ev.target.closest(".turn__retry");
-    if (!retryBtn) return;
-    const article = retryBtn.closest(".turn");
-    const question = article.querySelector(".turn__you-text").textContent;
-    runTurn(question, article);
+    if (retryBtn) {
+      const article = retryBtn.closest(".turn");
+      const question = article.querySelector(".turn__you-text").textContent;
+      runTurn(question, article);
+      return;
+    }
+
+    const cite = ev.target.closest(".cite");
+    if (cite) {
+      const article = cite.closest(".turn");
+      const row = article.querySelector(`.srow[data-index="${cite.dataset.index}"]`);
+      if (row) {
+        row.classList.add("srow--flash");
+        row.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        setTimeout(() => row.classList.remove("srow--flash"), 1200);
+      }
+    }
   });
 
   newChatBtn.addEventListener("click", () => {

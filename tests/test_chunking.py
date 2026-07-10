@@ -1,4 +1,4 @@
-from ingest import chunk_markdown
+from ingest import _overlap_tail, chunk_markdown
 
 
 def test_splits_on_h2_headings():
@@ -45,3 +45,56 @@ def test_empty_sections_are_skipped():
     chunks = chunk_markdown("doc.md", text)
     assert len(chunks) == 1
     assert "Real" in chunks[0]
+
+
+def test_overlap_tail_trims_to_clean_boundary():
+    body = "abcdefgh ijklmnop qrstuvwx"
+    tail = _overlap_tail(body, 10)
+    assert tail in body
+    assert not tail.startswith(" ")
+
+
+def test_overlap_tail_returns_whole_body_when_shorter_than_overlap():
+    body = "short text"
+    assert _overlap_tail(body, 100) == body.strip()
+
+
+def test_overlap_tail_falls_back_to_raw_tail_when_no_boundary_found():
+    body = "a" * 50  # no spaces/newlines/periods anywhere
+    assert _overlap_tail(body, 10) == "a" * 10
+
+
+def test_oversized_section_chunks_share_overlap():
+    paras = ["Alpha bravo charlie.", "Delta echo foxtrot.", "Golf hotel india.",
+             "Juliet kilo lima.", "Mike november oscar."]
+    text = "# Title\n\n## Section\n\n" + "\n\n".join(paras)
+    chunks = chunk_markdown("doc.md", text, max_chars=45, overlap=25)
+    assert len(chunks) > 1
+    tail_words = chunks[0].strip().split()[-2:]
+    head_words = chunks[1].strip().split()
+    assert any(w in head_words for w in tail_words)
+
+
+def test_overlap_clamped_when_larger_than_max_chars():
+    para = "word " * 20  # ~100 chars
+    text = "# Title\n\n## Big Section\n\n" + "\n\n".join([para] * 5)
+    chunks = chunk_markdown("doc.md", text, max_chars=150, overlap=1000)
+    assert len(chunks) > 1
+    for c in chunks:
+        assert len(c) < 450  # bounded — overlap clamps to max_chars // 2, no runaway duplication
+
+
+def test_prefix_appears_once_per_chunk():
+    para = "word " * 20
+    text = "# Title\n\n## Big Section\n\n" + "\n\n".join([para] * 5)
+    chunks = chunk_markdown("doc.md", text, max_chars=150, overlap=50)
+    prefix = "Title — Big Section"
+    for c in chunks:
+        assert c.count(prefix) == 1
+
+
+def test_single_chunk_section_unaffected_by_overlap():
+    text = "# Title\n\n## Small Section\n\nJust one short paragraph."
+    chunks = chunk_markdown("doc.md", text, max_chars=1500, overlap=200)
+    assert len(chunks) == 1
+    assert chunks[0].count("Just one short paragraph.") == 1

@@ -7,6 +7,7 @@ chunks, and asks Gemini to answer using only that context.
 import json
 import math
 import os
+import re
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -33,11 +34,24 @@ Rules:
 - Answer ONLY from the CONTEXT block provided with each question. It contains excerpts from the knowledge base.
 - If the context does not contain the answer, say you don't have that information. Never guess.
 - Quote records, dates, weights, and other figures exactly as written in the context. Never invent, estimate, or round them.
-- Never state a fighter's ranking, title status, or fight result unless it's stated in the context — these change often.
+- Never state a fighter's ranking, title status, or fight result unless it's stated in the context — these change often. When you do state one, note that it reflects the knowledge base's last update and may no longer be current.
+- When a fact comes from a specific context excerpt, briefly note its source (e.g., "per rankings.md").
+- Each CONTEXT excerpt is numbered like [1], [2]. When you state a fact, cite the excerpt it came from using its bracket number (e.g. "Aspinall is champion [1]."). Cite multiple as [2][3].
 - Be concise and clear."""
 
 NO_MATCH_ANSWER = "I don't have information about that in my knowledge base."
 EMPTY_RESPONSE_ANSWER = "The model returned an empty response. Please try asking again."
+
+REWRITE_INSTRUCTION = (
+    "You rewrite a user's follow-up question into a standalone search query.\n"
+    "Use the conversation to resolve pronouns and references (e.g. 'he', 'that fight', 'the champ').\n"
+    "If the question is already standalone, return it unchanged.\n"
+    "Output ONLY the rewritten query — no preamble, no quotes, no explanation."
+)
+
+BM25_K1 = 1.5
+BM25_B = 0.75
+_TOKEN_RE = re.compile(r"[0-9]+(?:-[0-9]+)+|\w+", re.UNICODE)
 
 
 def validate_store(store: dict) -> None:
@@ -93,13 +107,71 @@ def cosine_similarity(a: list[float], b: list[float]) -> float:
     return dot / (norm_a * norm_b)
 
 
+def _tokenize(text: str) -> list[str]:
+    return _TOKEN_RE.findall(text.lower())
+
+
+def _bm25_index(store: dict) -> dict:
+    """Build (and cache on the store dict) BM25 corpus stats: per-doc term
+    frequencies, inverse doc frequencies, doc lengths, and average length.
+    """
+    idx = store.get("_bm25")
+    if idx is not None:
+        return idx
+    docs = [_tokenize(e["text"]) for e in store["entries"]]
+    doc_freq: dict[str, int] = {}
+    for toks in docs:
+        for t in set(toks):
+            doc_freq[t] = doc_freq.get(t, 0) + 1
+    n = len(docs)
+    avgdl = (sum(len(d) for d in docs) / n) if n else 0.0
+    idf = {t: math.log(1 + (n - c + 0.5) / (c + 0.5)) for t, c in doc_freq.items()}
+    term_freq: list[dict[str, int]] = [{} for _ in docs]
+    for i, toks in enumerate(docs):
+        for t in toks:
+            term_freq[i][t] = term_freq[i].get(t, 0) + 1
+    idx = {"tf": term_freq, "idf": idf, "len": [len(d) for d in docs], "avgdl": avgdl}
+    store["_bm25"] = idx
+    return idx
+
+
+def _bm25_scores(store: dict, query: str) -> list[float]:
+    idx = _bm25_index(store)
+    q_tokens = _tokenize(query)
+    scores = [0.0] * len(idx["len"])
+    for i in range(len(scores)):
+        doc_len, tf = idx["len"][i], idx["tf"][i]
+        s = 0.0
+        for t in q_tokens:
+            f = tf.get(t)
+            if not f:
+                continue
+            denom = f + BM25_K1 * (1 - BM25_B + BM25_B * doc_len / (idx["avgdl"] or 1))
+            s += idx["idf"].get(t, 0.0) * f * (BM25_K1 + 1) / denom
+        scores[i] = s
+    return scores
+
+
+def _ranks(scores: list[float]) -> list[int]:
+    """1-based rank of each score, best (highest) first; ties broken by index."""
+    order = sorted(range(len(scores)), key=lambda i: (-scores[i], i))
+    rank = [0] * len(scores)
+    for pos, i in enumerate(order, start=1):
+        rank[i] = pos
+    return rank
+
+
 def retrieve(
     store: dict,
     client: genai.Client,
     question: str,
     top_k: int = TOP_K,
     min_similarity: float = MIN_SIMILARITY,
+    hybrid: bool | None = None,
 ) -> list[dict]:
+    if hybrid is None:
+        hybrid = config.HYBRID_SEARCH
+
     res = client.models.embed_content(
         model=EMBEDDING_MODEL,
         contents=[question],
@@ -109,10 +181,27 @@ def retrieve(
         ),
     )
     q_vec = list(res.embeddings[0].values)
-    scored = [
-        {**entry, "score": cosine_similarity(q_vec, entry["embedding"])}
-        for entry in store["entries"]
-    ]
+    cos = [cosine_similarity(q_vec, e["embedding"]) for e in store["entries"]]
+    scored = [{**e, "score": cos[i]} for i, e in enumerate(store["entries"])]
+
+    if hybrid:
+        bm25 = _bm25_scores(store, question)
+        if any(s > 0 for s in bm25):
+            # Grounding gate stays cosine-only: keyword overlap alone can
+            # never rescue a question the KB has no real answer for.
+            if (max(cos) if cos else 0.0) < min_similarity:
+                return []
+            cos_rank, kw_rank = _ranks(cos), _ranks(bm25)
+
+            def rrf(i: int) -> float:
+                r = 1.0 / (config.RRF_K + cos_rank[i])
+                if bm25[i] > 0:
+                    r += 1.0 / (config.RRF_K + kw_rank[i])
+                return r
+
+            order = sorted(range(len(scored)), key=lambda i: (-rrf(i), -cos[i], i))
+            return [scored[i] for i in order[:top_k]]
+
     scored.sort(key=lambda e: e["score"], reverse=True)
     return [e for e in scored[:top_k] if e["score"] >= min_similarity]
 
@@ -127,6 +216,25 @@ def build_prompt(question: str, hits: list[dict]) -> str:
     return f"CONTEXT:\n{build_context(hits)}\n\nQUESTION: {question}"
 
 
+def rewrite_query(client: genai.Client, question: str, turns: list[dict]) -> str:
+    """Rewrite a follow-up into a standalone search query using recent (q, a)
+    turns, so retrieval can resolve pronouns like "he" or "that fight".
+    Falls back to the original question on any error.
+    """
+    convo = "\n".join(f"User: {t['q']}\nAssistant: {t['a']}" for t in turns)
+    prompt = f"{REWRITE_INSTRUCTION}\n\nCONVERSATION:\n{convo}\n\nFOLLOW-UP: {question}\n\nSTANDALONE QUERY:"
+    try:
+        response = client.models.generate_content(
+            model=CHAT_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(temperature=0.0),
+        )
+        rewritten = (response.text or "").strip().strip('"').strip()
+        return rewritten or question
+    except Exception:
+        return question
+
+
 class GroundedChat:
     """Multi-turn grounded chat: per-question retrieval plus a Gemini chat
     session that keeps history so follow-ups ("and his last fight?") resolve.
@@ -137,6 +245,10 @@ class GroundedChat:
         self._client = client
         self._max_turns = max_turns
         self._chat = self._new_chat()
+        # (question, answer) pairs kept for the query rewriter — deliberately
+        # separate from the chat's own history, whose "user" turns are full
+        # CONTEXT-laden prompts unfit for a compact rewrite prompt.
+        self._turns: list[dict] = []
 
     def _new_chat(self, history=None):
         return self._client.chats.create(
@@ -154,24 +266,44 @@ class GroundedChat:
         if len(history) > limit:
             self._chat = self._new_chat(history=history[-limit:])
 
+    def _search_query(self, question: str) -> str:
+        if config.ENABLE_QUERY_REWRITE and self._turns:
+            recent = self._turns[-config.REWRITE_HISTORY_TURNS :]
+            return rewrite_query(self._client, question, recent)
+        return question
+
+    def _record_turn(self, question: str, answer: str) -> None:
+        self._turns.append({"q": question, "a": answer})
+        self._turns = self._turns[-config.REWRITE_HISTORY_TURNS :]
+
     def ask(self, question: str) -> tuple[str, list[dict]]:
-        hits = retrieve(self._store, self._client, question)
+        search_query = self._search_query(question)
+        hits = retrieve(self._store, self._client, search_query)
         if not hits:
             return NO_MATCH_ANSWER, hits
         self._trim_history()
         response = self._chat.send_message(build_prompt(question, hits))
-        return response.text or EMPTY_RESPONSE_ANSWER, hits
+        answer = response.text or EMPTY_RESPONSE_ANSWER
+        if response.text:
+            self._record_turn(question, answer)
+        return answer, hits
 
     def ask_stream(self, question: str) -> tuple[list[dict], Iterator[str]]:
-        hits = retrieve(self._store, self._client, question)
+        search_query = self._search_query(question)
+        hits = retrieve(self._store, self._client, search_query)
         if not hits:
             return hits, iter((NO_MATCH_ANSWER,))
         self._trim_history()
         stream = self._chat.send_message_stream(build_prompt(question, hits))
 
         def chunks() -> Iterator[str]:
+            parts: list[str] = []
             for chunk in stream:
                 if chunk.text:
+                    parts.append(chunk.text)
                     yield chunk.text
+            answer = "".join(parts)
+            if answer:
+                self._record_turn(question, answer)
 
         return hits, chunks()

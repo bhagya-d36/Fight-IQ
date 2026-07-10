@@ -256,6 +256,22 @@ body {
   50% { opacity: 1; }
 }
 
+.cite {
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  color: var(--accent);
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0 1px;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.cite:hover { color: var(--bone); }
+
 .turn__error:not([hidden]) {
   margin-top: 12px;
   display: flex;
@@ -329,6 +345,15 @@ body {
 .srow__score {
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+.srow--flash {
+  animation: srow-flash 1.2s ease-out;
+}
+
+@keyframes srow-flash {
+  0% { background: rgba(210, 10, 10, 0.25); }
+  100% { background: transparent; }
 }
 
 /* ---- input bar ---- */
