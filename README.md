@@ -52,6 +52,13 @@ Override the bind address/port with env vars if needed: `HOST`, `PORT` (defaults
 `127.0.0.1:8000`). To deploy, run `uvicorn server:app --host 0.0.0.0 --port $PORT`
 on any host that has `GEMINI_API_KEY` set and `vector-store.json` present.
 
+The server also exposes `GET /health` (chunk count, model, store version, live
+session count) for deploy probes, caps question length at `MAX_QUESTION_CHARS`
+(422 if exceeded), and rate-limits `/api/ask*` per client IP — `RATE_LIMIT_REQUESTS`
+per `RATE_LIMIT_WINDOW_SECONDS`, `RATE_LIMIT_ENABLED` to turn it off. The limiter
+is in-memory per process (a multi-worker deploy counts each worker separately)
+and keyed by the direct peer IP (not `X-Forwarded-For`, which is spoofable).
+
 ## Answer quality
 
 A few things beyond plain vector search improve retrieval and answers:
@@ -78,6 +85,7 @@ A few things beyond plain vector search improve retrieval and answers:
 | `ingest.py` | Chunk + embed the knowledge base into `vector-store.json` (incremental, `--force` to rebuild) |
 | `rag.py` | Shared retrieval + grounded multi-turn chat logic (`GroundedChat`) used by both entry points |
 | `sessions.py` | Bounded, TTL-evicting in-memory store used to keep one `GroundedChat` per web session |
+| `ratelimit.py` | Fixed-window per-IP rate limiter used by `server.py` |
 | `config.py` | All tunable settings, overridable via env vars (see `.env.example`) |
 | `chat.py` | Terminal chat: retrieve top chunks, grounded Gemini reply, multi-turn memory |
 | `server.py` | FastAPI app: `/api/ask`, `/api/ask/stream` (SSE), session-aware, serves `web/` |

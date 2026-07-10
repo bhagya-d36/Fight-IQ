@@ -10,14 +10,15 @@ import os
 import sys
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from google.genai import errors
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 import config
 import rag  # importing rag loads config, which loads .env
+from ratelimit import RateLimiter
 from sessions import SessionStore
 
 logging.basicConfig(level=logging.INFO)
@@ -46,11 +47,13 @@ sessions: SessionStore[rag.GroundedChat] = SessionStore(
     ttl_seconds=config.SESSION_TTL_MINUTES * 60,
 )
 
+limiter = RateLimiter(config.RATE_LIMIT_REQUESTS, config.RATE_LIMIT_WINDOW_SECONDS)
+
 MAX_SESSION_ID_LEN = 64
 
 
 class AskRequest(BaseModel):
-    question: str
+    question: str = Field(max_length=config.MAX_QUESTION_CHARS)
     session_id: str | None = None
 
 
@@ -59,6 +62,14 @@ def _chat_for(session_id: str | None) -> rag.GroundedChat:
     if session_id and len(session_id) <= MAX_SESSION_ID_LEN:
         return sessions.get_or_create(session_id)
     return rag.GroundedChat(store, client)
+
+
+def rate_limit(request: Request) -> None:
+    if not config.RATE_LIMIT_ENABLED:
+        return
+    client_host = request.client.host if request.client else "unknown"
+    if not limiter.allow(client_host):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded. Please slow down.")
 
 
 def _sources_payload(hits: list[dict]) -> list[dict]:
@@ -70,7 +81,18 @@ def index() -> FileResponse:
     return FileResponse(WEB_DIR / "index.html")
 
 
-@app.post("/api/ask")
+@app.get("/health")
+def health() -> dict:
+    return {
+        "status": "ok",
+        "chunks": len(store["entries"]),
+        "model": store.get("model"),
+        "storeVersion": store.get("version"),
+        "sessions": len(sessions),
+    }
+
+
+@app.post("/api/ask", dependencies=[Depends(rate_limit)])
 def ask(req: AskRequest):
     question = req.question.strip()
     if not question:
@@ -94,8 +116,11 @@ def ask(req: AskRequest):
         )
 
 
-@app.get("/api/ask/stream")
-def ask_stream(q: str, session_id: str | None = None) -> StreamingResponse:
+@app.get("/api/ask/stream", dependencies=[Depends(rate_limit)])
+def ask_stream(
+    q: str = Query(max_length=config.MAX_QUESTION_CHARS),
+    session_id: str | None = None,
+) -> StreamingResponse:
     question = q.strip()
 
     def sse(event: str, data: dict) -> str:
