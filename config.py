@@ -60,3 +60,7 @@ REWRITE_HISTORY_TURNS = env_int("REWRITE_HISTORY_TURNS", 3)  # prior turns fed t
 MAX_CHUNK_OVERLAP = env_int("MAX_CHUNK_OVERLAP", 200)  # chars re-included between packed chunks (re-ingest --force after changing)
 HYBRID_SEARCH = env_bool("HYBRID_SEARCH", True)  # blend BM25 keyword search with vector search via RRF
 RRF_K = env_int("RRF_K", 60)  # reciprocal-rank-fusion constant
+MAX_QUESTION_CHARS = env_int("MAX_QUESTION_CHARS", 1000)  # reject questions longer than this
+RATE_LIMIT_ENABLED = env_bool("RATE_LIMIT_ENABLED", True)  # cap requests per client IP on /api/ask*
+RATE_LIMIT_REQUESTS = env_int("RATE_LIMIT_REQUESTS", 30)  # requests allowed per window, per client IP
+RATE_LIMIT_WINDOW_SECONDS = env_int("RATE_LIMIT_WINDOW_SECONDS", 60)  # rate limit window length
