@@ -16,7 +16,9 @@ from fastapi.staticfiles import StaticFiles
 from google.genai import errors
 from pydantic import BaseModel
 
+import config
 import rag  # importing rag loads config, which loads .env
+from sessions import SessionStore
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("server")
@@ -38,9 +40,25 @@ except RuntimeError as err:
 
 app = FastAPI(title="UFC RAG Assistant")
 
+sessions: SessionStore[rag.GroundedChat] = SessionStore(
+    factory=lambda: rag.GroundedChat(store, client),
+    max_sessions=config.MAX_SESSIONS,
+    ttl_seconds=config.SESSION_TTL_MINUTES * 60,
+)
+
+MAX_SESSION_ID_LEN = 64
+
 
 class AskRequest(BaseModel):
     question: str
+    session_id: str | None = None
+
+
+def _chat_for(session_id: str | None) -> rag.GroundedChat:
+    """Reuse a session's chat if a valid id is given, else a one-shot chat."""
+    if session_id and len(session_id) <= MAX_SESSION_ID_LEN:
+        return sessions.get_or_create(session_id)
+    return rag.GroundedChat(store, client)
 
 
 def _sources_payload(hits: list[dict]) -> list[dict]:
@@ -59,15 +77,9 @@ def ask(req: AskRequest):
         return {"answer": "", "grounded": False, "sources": []}
 
     try:
-        hits = rag.retrieve(store, client, question)
-        if not hits:
-            return {
-                "answer": "I don't have information about that in my knowledge base.",
-                "grounded": False,
-                "sources": [],
-            }
-        text = rag.answer(client, question, hits)
-        return {"answer": text, "grounded": True, "sources": _sources_payload(hits)}
+        chat = _chat_for(req.session_id)
+        text, hits = chat.ask(question)
+        return {"answer": text, "grounded": bool(hits), "sources": _sources_payload(hits)}
     except errors.APIError as err:
         logger.exception("Gemini API error answering question")
         return JSONResponse(
@@ -83,7 +95,7 @@ def ask(req: AskRequest):
 
 
 @app.get("/api/ask/stream")
-def ask_stream(q: str) -> StreamingResponse:
+def ask_stream(q: str, session_id: str | None = None) -> StreamingResponse:
     question = q.strip()
 
     def sse(event: str, data: dict) -> str:
@@ -95,17 +107,10 @@ def ask_stream(q: str) -> StreamingResponse:
             return
 
         try:
-            hits = rag.retrieve(store, client, question)
-            if not hits:
-                yield sse("sources", {"grounded": False, "sources": []})
-                yield sse(
-                    "token",
-                    {"text": "I don't have information about that in my knowledge base."},
-                )
-                return
-
-            yield sse("sources", {"grounded": True, "sources": _sources_payload(hits)})
-            for piece in rag.answer_stream(client, question, hits):
+            chat = _chat_for(session_id)
+            hits, chunks = chat.ask_stream(question)
+            yield sse("sources", {"grounded": bool(hits), "sources": _sources_payload(hits)})
+            for piece in chunks:
                 yield sse("token", {"text": piece})
         except Exception:
             logger.exception("Error while streaming an answer")

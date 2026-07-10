@@ -20,15 +20,53 @@ class FakeModels:
         return SimpleNamespace(embeddings=[FakeEmbedding(self._vector) for _ in contents])
 
 
+class FakeChat:
+    """Duck-typed stand-in for a google.genai chats.Chat session."""
+
+    def __init__(self, reply: str, history: list | None = None):
+        self.messages: list[str] = []
+        self._history = list(history) if history else []
+        self.reply = reply
+
+    def send_message(self, message):
+        self.messages.append(message)
+        self._history += [f"user:{message}", f"model:{self.reply}"]
+        return SimpleNamespace(text=self.reply)
+
+    def send_message_stream(self, message):
+        self.messages.append(message)
+        self._history += [f"user:{message}", f"model:{self.reply}"]
+        return iter(SimpleNamespace(text=piece) for piece in self.reply.split())
+
+    def get_history(self, curated: bool = False):
+        return list(self._history)
+
+
+class FakeChats:
+    """Duck-typed stand-in for genai.Client().chats — records every session created."""
+
+    def __init__(self, reply: str):
+        self._reply = reply
+        self.created: list[FakeChat] = []
+        self.create_history_args: list[list | None] = []
+
+    def create(self, model, config=None, history=None):
+        chat = FakeChat(self._reply, history=history)
+        self.created.append(chat)
+        self.create_history_args.append(history)
+        return chat
+
+
 class FakeClient:
-    def __init__(self, vector: list[float]):
+    def __init__(self, vector: list[float], reply: str = "canned answer"):
         self.models = FakeModels(vector)
+        self.chats = FakeChats(reply)
 
 
 @pytest.fixture
 def fake_client():
-    def _make(vector: list[float]) -> FakeClient:
-        return FakeClient(vector)
+    def _make(vector: list[float], reply: str = "canned answer") -> FakeClient:
+        return FakeClient(vector, reply)
 
     return _make
 

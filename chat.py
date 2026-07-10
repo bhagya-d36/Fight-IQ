@@ -5,7 +5,7 @@ Run `python ingest.py` first, then:  python chat.py
 
 import sys
 
-from google.genai import errors, types
+from google.genai import errors
 
 import rag  # importing rag loads config, which loads .env
 
@@ -19,26 +19,7 @@ try:
 except RuntimeError as err:
     sys.exit(str(err))
 
-chat = client.chats.create(
-    model=rag.CHAT_MODEL,
-    config=types.GenerateContentConfig(
-        system_instruction=rag.SYSTEM_INSTRUCTION,
-        temperature=0.2,
-    ),
-)
-
-
-def ask(question: str) -> tuple[str, list[dict]]:
-    hits = rag.retrieve(store, client, question)
-    if not hits:
-        return (
-            "I don't have information about that in my knowledge base.",
-            hits,
-        )
-    context = rag.build_context(hits)
-    response = chat.send_message(f"CONTEXT:\n{context}\n\nQUESTION: {question}")
-    text = response.text or "The model returned an empty response. Please try asking again."
-    return text, hits
+chat = rag.GroundedChat(store, client)
 
 
 def main() -> None:
@@ -55,7 +36,7 @@ def main() -> None:
         if question.lower() in ("exit", "quit", "q"):
             break
         try:
-            text, hits = ask(question)
+            text, hits = chat.ask(question)
             print(f"\nbot > {text}\n")
             if hits:
                 sources = list(dict.fromkeys(f"{h['source']} ({h['score']:.2f})" for h in hits))

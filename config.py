@@ -52,3 +52,6 @@ MAX_CHUNK_CHARS = env_int("MAX_CHUNK_CHARS", 1500)  # ~350-400 tokens per chunk
 GEMINI_TIMEOUT_MS = env_int("GEMINI_TIMEOUT_MS", 60_000)  # per-request timeout (per-read for streams)
 GEMINI_RETRY_ATTEMPTS = env_int("GEMINI_RETRY_ATTEMPTS", 4)  # total tries per request, including the first
 FORCE_IPV4 = env_bool("FORCE_IPV4")  # skip IPv6 DNS results; see net_fix.py
+MAX_SESSIONS = env_int("MAX_SESSIONS", 20)  # web chat sessions kept in memory before LRU eviction
+SESSION_TTL_MINUTES = env_int("SESSION_TTL_MINUTES", 60)  # idle web sessions expire after this
+MAX_CHAT_TURNS = env_int("MAX_CHAT_TURNS", 20)  # sliding window of turns kept in a chat's history

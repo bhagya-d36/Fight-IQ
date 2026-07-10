@@ -7,6 +7,7 @@ chunks, and asks Gemini to answer using only that context.
 import json
 import math
 import os
+from collections.abc import Iterator
 from pathlib import Path
 
 from google import genai
@@ -34,6 +35,9 @@ Rules:
 - Quote records, dates, weights, and other figures exactly as written in the context. Never invent, estimate, or round them.
 - Never state a fighter's ranking, title status, or fight result unless it's stated in the context — these change often.
 - Be concise and clear."""
+
+NO_MATCH_ANSWER = "I don't have information about that in my knowledge base."
+EMPTY_RESPONSE_ANSWER = "The model returned an empty response. Please try asking again."
 
 
 def validate_store(store: dict) -> None:
@@ -119,31 +123,55 @@ def build_context(hits: list[dict]) -> str:
     )
 
 
-def answer(client: genai.Client, question: str, hits: list[dict]) -> str:
-    """Single-turn grounded answer (no shared chat history across callers)."""
-    context = build_context(hits)
-    response = client.models.generate_content(
-        model=CHAT_MODEL,
-        contents=f"CONTEXT:\n{context}\n\nQUESTION: {question}",
-        config=types.GenerateContentConfig(
-            system_instruction=SYSTEM_INSTRUCTION,
-            temperature=0.2,
-        ),
-    )
-    return response.text or "The model returned an empty response. Please try asking again."
+def build_prompt(question: str, hits: list[dict]) -> str:
+    return f"CONTEXT:\n{build_context(hits)}\n\nQUESTION: {question}"
 
 
-def answer_stream(client: genai.Client, question: str, hits: list[dict]):
-    """Yields response text chunks for a single-turn grounded answer."""
-    context = build_context(hits)
-    stream = client.models.generate_content_stream(
-        model=CHAT_MODEL,
-        contents=f"CONTEXT:\n{context}\n\nQUESTION: {question}",
-        config=types.GenerateContentConfig(
-            system_instruction=SYSTEM_INSTRUCTION,
-            temperature=0.2,
-        ),
-    )
-    for chunk in stream:
-        if chunk.text:
-            yield chunk.text
+class GroundedChat:
+    """Multi-turn grounded chat: per-question retrieval plus a Gemini chat
+    session that keeps history so follow-ups ("and his last fight?") resolve.
+    """
+
+    def __init__(self, store: dict, client: genai.Client, max_turns: int = config.MAX_CHAT_TURNS) -> None:
+        self._store = store
+        self._client = client
+        self._max_turns = max_turns
+        self._chat = self._new_chat()
+
+    def _new_chat(self, history=None):
+        return self._client.chats.create(
+            model=CHAT_MODEL,
+            config=types.GenerateContentConfig(
+                system_instruction=SYSTEM_INSTRUCTION,
+                temperature=0.2,
+            ),
+            history=history,
+        )
+
+    def _trim_history(self) -> None:
+        history = self._chat.get_history(curated=True)
+        limit = self._max_turns * 2
+        if len(history) > limit:
+            self._chat = self._new_chat(history=history[-limit:])
+
+    def ask(self, question: str) -> tuple[str, list[dict]]:
+        hits = retrieve(self._store, self._client, question)
+        if not hits:
+            return NO_MATCH_ANSWER, hits
+        self._trim_history()
+        response = self._chat.send_message(build_prompt(question, hits))
+        return response.text or EMPTY_RESPONSE_ANSWER, hits
+
+    def ask_stream(self, question: str) -> tuple[list[dict], Iterator[str]]:
+        hits = retrieve(self._store, self._client, question)
+        if not hits:
+            return hits, iter((NO_MATCH_ANSWER,))
+        self._trim_history()
+        stream = self._chat.send_message_stream(build_prompt(question, hits))
+
+        def chunks() -> Iterator[str]:
+            for chunk in stream:
+                if chunk.text:
+                    yield chunk.text
+
+        return hits, chunks()

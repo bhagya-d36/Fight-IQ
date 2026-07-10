@@ -20,9 +20,12 @@
     <span class="statusbar__divider">&middot;</span>
     <span class="statusbar__label">ASSISTANT</span>
   </div>
-  <div class="statusbar__chip" id="status-chip" data-state="idle">
-    <span class="statusbar__dot"></span>
-    <span id="status-text">READY</span>
+  <div class="statusbar__actions">
+    <button class="statusbar__new" id="new-chat" type="button">NEW CHAT</button>
+    <div class="statusbar__chip" id="status-chip" data-state="idle">
+      <span class="statusbar__dot"></span>
+      <span id="status-text">READY</span>
+    </div>
   </div>
 </header>
 
@@ -64,6 +67,10 @@
     </div>
     <div class="turn__bot">
       <div class="turn__bot-text"></div>
+      <div class="turn__error" hidden>
+        <span class="turn__error-text"></span>
+        <button class="turn__retry" type="button">RETRY</button>
+      </div>
       <div class="turn__sources" hidden>
         <div class="turn__sources-label">SOURCES</div>
         <div class="turn__sources-list"></div>

@@ -41,6 +41,13 @@ uvicorn server:app --reload
 Then open `http://127.0.0.1:8000`. Same retrieval + grounding as `chat.py`, served
 as a small FastAPI app with a hand-built frontend (no Node, no build step) in `web/`.
 
+The browser keeps a client-generated session id (`localStorage`) and sends it
+with every question, so follow-ups like "and his last fight?" resolve like they
+do in `chat.py`. Sessions live in memory on the server only — bounded by
+`MAX_SESSIONS` (LRU-evicted past that) and `SESSION_TTL_MINUTES` (idle
+sessions expire), with each session's own chat history capped at
+`MAX_CHAT_TURNS`. A server restart drops all sessions.
+
 Override the bind address/port with env vars if needed: `HOST`, `PORT` (defaults
 `127.0.0.1:8000`). To deploy, run `uvicorn server:app --host 0.0.0.0 --port $PORT`
 on any host that has `GEMINI_API_KEY` set and `vector-store.json` present.
@@ -50,10 +57,11 @@ on any host that has `GEMINI_API_KEY` set and `vector-store.json` present.
 | File | Role |
 |---|---|
 | `ingest.py` | Chunk + embed the knowledge base into `vector-store.json` (incremental, `--force` to rebuild) |
-| `rag.py` | Shared retrieval + grounded-answer logic used by both entry points |
+| `rag.py` | Shared retrieval + grounded multi-turn chat logic (`GroundedChat`) used by both entry points |
+| `sessions.py` | Bounded, TTL-evicting in-memory store used to keep one `GroundedChat` per web session |
 | `config.py` | All tunable settings, overridable via env vars (see `.env.example`) |
-| `chat.py` | Terminal chat: retrieve top chunks, grounded Gemini reply |
-| `server.py` | FastAPI app: `/api/ask`, `/api/ask/stream` (SSE), serves `web/` |
+| `chat.py` | Terminal chat: retrieve top chunks, grounded Gemini reply, multi-turn memory |
+| `server.py` | FastAPI app: `/api/ask`, `/api/ask/stream` (SSE), session-aware, serves `web/` |
 | `web/` | Hand-built frontend (`index.html`, `styles.css`, `app.js`) |
 | `tests/` | Offline pytest suite (`pytest -q`) — no network calls |
 | `requirements.txt` | Pinned runtime dependencies |
