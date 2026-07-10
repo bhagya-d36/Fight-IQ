@@ -8,6 +8,10 @@
   --muted: #9a9aa2;
   --accent: #d20a0a;
   --accent-dim: #7a0808;
+  --accent-glow: rgba(210, 10, 10, 0.45);
+  --gold: #d9a441;
+  --gold-dim: #8a6a26;
+  --gold-glow: rgba(217, 164, 65, 0.35);
   --font-display: "Barlow Condensed", "Arial Narrow", sans-serif;
   --font-body: "Barlow", system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, monospace;
@@ -15,11 +19,14 @@
 
 * { box-sizing: border-box; }
 
+html {
+  background: var(--canvas);
+}
+
 html, body {
   margin: 0;
   padding: 0;
   height: 100%;
-  background: var(--canvas);
   color: var(--bone);
   font-family: var(--font-body);
 }
@@ -28,9 +35,27 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
+  position: relative;
 }
 
-/* ---- status bar ---- */
+/* ---- arena background motif (octagon + vignette + scanlines) ---- */
+.arena-bg {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-color: var(--canvas);
+  background-image:
+    radial-gradient(ellipse 70% 45% at 50% 0%, rgba(210, 10, 10, 0.14), transparent 70%),
+    radial-gradient(ellipse 130% 90% at 50% 45%, transparent 30%, rgba(0, 0, 0, 0.7) 100%),
+    repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.02) 0 1px, transparent 1px 10px),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 800 800'%3E%3Cpolygon points='166,0 634,0 800,166 800,634 634,800 166,800 0,634 0,166' fill='none' stroke='%23d9a441' stroke-width='2' opacity='0.2'/%3E%3C/svg%3E");
+  background-repeat: no-repeat, no-repeat, repeat, no-repeat;
+  background-position: top center, center, center, center 40%;
+  background-size: 100% 100%, 100% 100%, auto, min(640px, 70vmin) min(640px, 70vmin);
+}
+
+/* ---- status bar (broadcast scorebug) ---- */
 .statusbar {
   display: flex;
   align-items: center;
@@ -43,9 +68,20 @@ body {
   z-index: 10;
 }
 
+.statusbar::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--gold), transparent);
+  opacity: 0.55;
+}
+
 .statusbar__brand {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
   font-family: var(--font-display);
   font-weight: 800;
@@ -54,10 +90,26 @@ body {
   text-transform: uppercase;
 }
 
+.statusbar__brand::before {
+  content: "";
+  width: 4px;
+  height: 18px;
+  flex-shrink: 0;
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent-glow);
+}
+
+.statusbar__mark {
+  background: linear-gradient(180deg, #ffffff 0%, var(--bone) 35%, #b7b7c0 55%, var(--bone) 78%, #8b8b94 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
 .statusbar__divider { color: var(--muted); font-weight: 400; }
 
 .statusbar__label {
-  color: var(--muted);
+  color: var(--gold);
   font-size: 15px;
   font-weight: 700;
 }
@@ -69,32 +121,38 @@ body {
 }
 
 .statusbar__new {
+  --cut: 8px;
   font-family: var(--font-mono);
   font-size: 12px;
   letter-spacing: 0.06em;
   color: var(--bone);
   background: var(--surface);
   border: 1px solid var(--hairline);
-  padding: 6px 12px;
+  padding: 6px 14px;
   cursor: pointer;
-  transition: border-color 0.15s ease, color 0.15s ease;
+  clip-path: polygon(var(--cut) 0, 100% 0, 100% 100%, 0 100%, 0 100%, 0 var(--cut));
+  transition: border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .statusbar__new:hover {
   border-color: var(--accent);
   color: var(--accent);
+  box-shadow: 0 0 10px var(--accent-glow);
 }
 
 .statusbar__chip {
+  --cut: 8px;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 12px;
+  padding: 6px 14px;
   border: 1px solid var(--hairline);
   font-family: var(--font-mono);
   font-size: 12px;
   letter-spacing: 0.06em;
   color: var(--muted);
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, 0 100%);
+  transition: box-shadow 0.2s ease, border-color 0.2s ease, color 0.2s ease;
 }
 
 .statusbar__dot {
@@ -107,6 +165,7 @@ body {
 .statusbar__chip[data-state="grounded"] {
   color: var(--bone);
   border-color: var(--accent);
+  box-shadow: 0 0 12px var(--accent-glow);
 }
 .statusbar__chip[data-state="grounded"] .statusbar__dot {
   background: var(--accent);
@@ -145,7 +204,7 @@ body {
   padding: 32px 20px 140px;
 }
 
-/* ---- hero / empty state ---- */
+/* ---- hero / empty state (broadcast intro card) ---- */
 .hero {
   padding: 40px 0 32px;
   border-bottom: 1px solid var(--hairline);
@@ -156,7 +215,8 @@ body {
   font-family: var(--font-mono);
   font-size: 12px;
   letter-spacing: 0.16em;
-  color: var(--accent);
+  color: var(--gold);
+  text-shadow: 0 0 12px var(--gold-glow);
   margin: 0 0 12px;
 }
 
@@ -168,6 +228,10 @@ body {
   margin: 0 0 12px;
   text-transform: uppercase;
   letter-spacing: 0.01em;
+  background: linear-gradient(180deg, #ffffff 0%, var(--bone) 35%, #b7b7c0 55%, var(--bone) 78%, #8b8b94 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 
 .hero__sub {
@@ -185,24 +249,33 @@ body {
 }
 
 .chip {
+  --cut: 8px;
   font-family: var(--font-mono);
   font-size: 13px;
   color: var(--bone);
   background: var(--surface);
   border: 1px solid var(--hairline);
-  padding: 8px 14px;
+  padding: 8px 16px;
   cursor: pointer;
-  transition: border-color 0.15s ease, color 0.15s ease;
+  clip-path: polygon(var(--cut) 0, 100% 0, 100% 100%, 0 100%, 0 100%, 0 var(--cut));
+  transition: border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .chip:hover {
   border-color: var(--accent);
   color: var(--accent);
+  box-shadow: 0 0 10px var(--accent-glow);
 }
 
 /* ---- conversation turns ---- */
 .turn {
   margin-bottom: 32px;
+  animation: wipe-in 0.4s ease-out;
+}
+
+@keyframes wipe-in {
+  0% { clip-path: inset(0 100% 0 0); }
+  100% { clip-path: inset(0 0 0 0); }
 }
 
 .turn__you {
@@ -210,6 +283,11 @@ body {
   align-items: baseline;
   gap: 10px;
   margin-bottom: 10px;
+  width: fit-content;
+  max-width: 100%;
+  padding: 6px 16px 6px 14px;
+  background: linear-gradient(90deg, var(--accent-dim) 0%, rgba(122, 8, 8, 0.3) 70%, transparent 100%);
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 12px 100%, 0 calc(100% - 12px));
 }
 
 .turn__you-label {
@@ -217,7 +295,7 @@ body {
   font-weight: 800;
   font-size: 13px;
   letter-spacing: 0.14em;
-  color: var(--muted);
+  color: var(--gold);
   flex-shrink: 0;
 }
 
@@ -228,7 +306,9 @@ body {
 
 .turn__bot {
   border-left: 3px solid var(--accent);
-  padding: 4px 0 4px 16px;
+  box-shadow: -2px 0 10px -2px var(--accent-glow);
+  padding: 10px 16px;
+  background: rgba(19, 19, 22, 0.92);
 }
 
 .turn__bot-text {
@@ -268,9 +348,10 @@ body {
   cursor: pointer;
   text-decoration: underline;
   text-underline-offset: 2px;
+  transition: color 0.15s ease;
 }
 
-.cite:hover { color: var(--bone); }
+.cite:hover { color: var(--gold); }
 
 .turn__error:not([hidden]) {
   margin-top: 12px;
@@ -296,17 +377,28 @@ body {
 
 .turn__retry:hover { background: var(--accent); }
 
+/* ---- sources (tale of the tape) ---- */
 .turn__sources {
   margin-top: 16px;
-  border-top: 1px solid var(--hairline);
-  padding-top: 12px;
+  padding-top: 14px;
+  position: relative;
+}
+
+.turn__sources::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 60px;
+  height: 2px;
+  background: linear-gradient(90deg, var(--gold), transparent);
 }
 
 .turn__sources-label {
   font-family: var(--font-mono);
   font-size: 11px;
-  letter-spacing: 0.14em;
-  color: var(--muted);
+  letter-spacing: 0.16em;
+  color: var(--gold);
   margin-bottom: 8px;
 }
 
@@ -318,15 +410,21 @@ body {
 
 .srow {
   display: grid;
-  grid-template-columns: minmax(120px, auto) 1fr 48px;
+  grid-template-columns: 190px 1fr 48px;
   align-items: center;
   gap: 10px;
   font-family: var(--font-mono);
   font-size: 12px;
   color: var(--muted);
+  padding: 3px 0;
 }
 
-.srow__name { color: var(--bone); }
+.srow__name {
+  color: var(--bone);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 
 .srow__bar {
   display: block;
@@ -338,13 +436,15 @@ body {
 .srow__bar-fill {
   position: absolute;
   inset: 0;
-  background: var(--accent);
+  background: linear-gradient(90deg, var(--accent), var(--gold));
   width: 0%;
 }
 
 .srow__score {
   text-align: right;
   font-variant-numeric: tabular-nums;
+  color: var(--gold);
+  font-weight: 600;
 }
 
 .srow--flash {
@@ -352,11 +452,11 @@ body {
 }
 
 @keyframes srow-flash {
-  0% { background: rgba(210, 10, 10, 0.25); }
+  0% { background: linear-gradient(90deg, rgba(217, 164, 65, 0.3), rgba(210, 10, 10, 0.22)); }
   100% { background: transparent; }
 }
 
-/* ---- input bar ---- */
+/* ---- input bar (broadcast command bar) ---- */
 .inputbar {
   position: sticky;
   bottom: 0;
@@ -368,6 +468,7 @@ body {
 }
 
 .inputbar__field {
+  --cut: 8px;
   flex: 1;
   max-width: 720px;
   margin: 0 auto 0 0;
@@ -378,14 +479,19 @@ body {
   font-size: 15px;
   padding: 12px 14px;
   outline: none;
-  transition: border-color 0.15s ease;
+  clip-path: polygon(var(--cut) 0, 100% 0, 100% 100%, 0 100%, 0 100%, 0 var(--cut));
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-.inputbar__field:focus { border-color: var(--accent); }
+.inputbar__field:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent), 0 0 12px var(--accent-glow);
+}
 
 .inputbar__field::placeholder { color: var(--muted); }
 
 .inputbar__submit {
+  --cut: 8px;
   font-family: var(--font-display);
   font-weight: 800;
   font-size: 14px;
@@ -393,15 +499,20 @@ body {
   color: var(--bone);
   background: var(--accent-dim);
   border: 1px solid var(--accent);
-  padding: 0 20px;
+  padding: 0 22px;
   cursor: pointer;
-  transition: background 0.15s ease;
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, 0 100%);
+  transition: background 0.15s ease, box-shadow 0.15s ease;
 }
 
-.inputbar__submit:hover { background: var(--accent); }
+.inputbar__submit:hover {
+  background: var(--accent);
+  box-shadow: 0 0 14px var(--accent-glow);
+}
 .inputbar__submit:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+  box-shadow: none;
 }
 
 /* centers the field+button pair like the transcript column */
@@ -410,14 +521,34 @@ body {
 }
 .inputbar__field { margin: 0; }
 
+/* ---- footer ---- */
+.arena-footer {
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  padding: 8px 20px;
+  background: var(--surface);
+  border-top: 1px solid var(--hairline);
+}
+
 /* ---- scrollbar (webkit) ---- */
 .arena::-webkit-scrollbar { width: 10px; }
 .arena::-webkit-scrollbar-track { background: var(--canvas); }
 .arena::-webkit-scrollbar-thumb { background: var(--hairline); }
 
+/* ---- reduced motion ---- */
+@media (prefers-reduced-motion: reduce) {
+  .turn { animation: none; }
+}
+
 /* ---- responsive ---- */
 @media (max-width: 480px) {
   .statusbar { padding: 12px 14px; }
+  .statusbar__brand::before { display: none; }
+  .statusbar__actions { gap: 8px; }
+  .statusbar__new, .statusbar__chip { padding: 6px 10px; }
   .transcript { padding: 24px 14px 120px; }
   .inputbar { padding: 12px 14px; }
   .srow { grid-template-columns: 100px 1fr 40px; }
