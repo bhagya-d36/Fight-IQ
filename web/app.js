@@ -62,7 +62,10 @@
       const row = sourceRowTpl.content.cloneNode(true);
       const srow = row.querySelector(".srow");
       srow.dataset.index = String(i + 1);
-      row.querySelector(".srow__name").textContent = s.source;
+      const nameEl = row.querySelector(".srow__name");
+      const displayName = s.label || s.source;
+      nameEl.textContent = displayName;
+      nameEl.title = displayName === s.source ? s.source : `${displayName} · ${s.source}`;
       row.querySelector(".srow__score").textContent = s.score.toFixed(2);
       row.querySelector(".srow__bar-fill").style.width = `${Math.round(s.score * 100)}%`;
       list.appendChild(row);

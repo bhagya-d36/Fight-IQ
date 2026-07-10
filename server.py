@@ -73,7 +73,14 @@ def rate_limit(request: Request) -> None:
 
 
 def _sources_payload(hits: list[dict]) -> list[dict]:
-    return [{"source": h["source"], "score": round(h["score"], 2)} for h in hits]
+    return [
+        {
+            "source": h["source"],
+            "label": h["text"].split("\n", 1)[0].strip(),
+            "score": round(h["score"], 2),
+        }
+        for h in hits
+    ]
 
 
 @app.get("/")

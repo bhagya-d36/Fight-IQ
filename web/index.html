@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>UFC KB — Assistant</title>
+<title>FightIQ — Assistant</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link
@@ -14,9 +14,11 @@
 </head>
 <body>
 
+<div class="arena-bg" aria-hidden="true"></div>
+
 <header class="statusbar">
   <div class="statusbar__brand">
-    <span class="statusbar__mark">UFC KB</span>
+    <span class="statusbar__mark">FightIQ</span>
     <span class="statusbar__divider">&middot;</span>
     <span class="statusbar__label">ASSISTANT</span>
   </div>
@@ -58,6 +60,8 @@
     <span>ASK</span>
   </button>
 </form>
+
+<footer class="arena-footer">Not affiliated with UFC / Zuffa &middot; answers are grounded in the local knowledge base</footer>
 
 <template id="tpl-turn">
   <article class="turn">
