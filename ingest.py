@@ -25,7 +25,7 @@ prefer_ipv4()
 BASE_DIR = Path(__file__).resolve().parent
 KB_DIR = BASE_DIR / "knowledge-base"
 STORE_FILE = BASE_DIR / "vector-store.json"
-STORE_VERSION = 2
+STORE_VERSION = 3
 
 DRY_RUN = "--dry-run" in sys.argv
 FORCE = "--force" in sys.argv
@@ -34,14 +34,36 @@ if not os.environ.get("GEMINI_API_KEY") and not DRY_RUN:
     sys.exit("Missing GEMINI_API_KEY. Create a .env file (see .env.example).")
 
 
-def chunk_markdown(file_name: str, text: str, max_chars: int = config.MAX_CHUNK_CHARS) -> list[str]:
+def _overlap_tail(body: str, overlap: int) -> str:
+    """Last ~overlap chars of body, trimmed to start at a clean boundary."""
+    if overlap <= 0 or len(body) <= overlap:
+        return body.strip()
+    tail = body[-overlap:]
+    for sep in ("\n\n", "\n", ". ", " "):
+        idx = tail.find(sep)
+        if idx != -1:
+            trimmed = tail[idx + len(sep) :].strip()
+            if trimmed:
+                return trimmed
+    return tail.strip()
+
+
+def chunk_markdown(
+    file_name: str,
+    text: str,
+    max_chars: int = config.MAX_CHUNK_CHARS,
+    overlap: int = config.MAX_CHUNK_OVERLAP,
+) -> list[str]:
     """Split a markdown document into chunks.
 
     Strategy: split on "## " headings so each chunk is one coherent topic,
-    then split any oversized section on blank lines. Every chunk is prefixed
-    with its document title + heading so it stays self-describing after
-    retrieval (the LLM never sees the rest of the file).
+    then split any oversized section on blank lines, carrying a small tail
+    of each packed chunk into the next so a fact split across a packing
+    boundary isn't orphaned. Every chunk is prefixed with its document title
+    + heading so it stays self-describing after retrieval (the LLM never
+    sees the rest of the file).
     """
+    overlap = min(overlap, max_chars // 2)  # clamp so packing always makes forward progress
     title_match = re.search(r"^#\s+(.+)$", text, re.MULTILINE)
     doc_title = title_match.group(1).strip() if title_match else file_name
     sections = re.split(r"^(?=##\s)", text, flags=re.MULTILINE)  # keep headings
@@ -62,12 +84,14 @@ def chunk_markdown(file_name: str, text: str, max_chars: int = config.MAX_CHUNK_
         if len(body) <= max_chars:
             chunks.append(prefix + body)
             continue
-        # Oversized section: pack paragraphs greedily up to the limit.
+        # Oversized section: pack paragraphs greedily up to the limit, carrying
+        # a small overlap tail into the next chunk so a fact split across the
+        # boundary isn't orphaned.
         current = ""
         for para in re.split(r"\n\s*\n", body):
             if current and len(current) + len(para) > max_chars:
                 chunks.append(prefix + current.strip())
-                current = ""
+                current = _overlap_tail(current, overlap) + "\n\n"
             current += para + "\n\n"
         if current.strip():
             chunks.append(prefix + current.strip())
@@ -94,6 +118,7 @@ def load_reusable_store(force: bool) -> dict | None:
         or store.get("model") != config.EMBEDDING_MODEL
         or store.get("dim") != config.EMBEDDING_DIM
         or store.get("chunkChars") != config.MAX_CHUNK_CHARS
+        or store.get("chunkOverlap") != config.MAX_CHUNK_OVERLAP
     ):
         return None
     return store
@@ -182,6 +207,7 @@ def main() -> None:
                 "model": config.EMBEDDING_MODEL,
                 "dim": config.EMBEDDING_DIM,
                 "chunkChars": config.MAX_CHUNK_CHARS,
+                "chunkOverlap": config.MAX_CHUNK_OVERLAP,
                 "createdAt": datetime.now(timezone.utc).isoformat(),
                 "files": file_hashes,
                 "entries": entries,

@@ -10,6 +10,10 @@ def _store():
     }
 
 
+def test_system_instruction_includes_citation_guidance():
+    assert "bracket number" in rag.SYSTEM_INSTRUCTION
+
+
 def test_build_prompt_shape():
     hits = [{"source": "a.md", "text": "chunk text", "score": 0.9}]
     prompt = rag.build_prompt("who is champ?", hits)

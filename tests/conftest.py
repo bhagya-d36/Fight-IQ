@@ -11,13 +11,23 @@ class FakeEmbedding:
 
 
 class FakeModels:
-    """Duck-typed stand-in for genai.Client().models — returns a canned vector."""
+    """Duck-typed stand-in for genai.Client().models — returns a canned vector
+    from embed_content and a canned (or failing) rewrite from generate_content.
+    """
 
-    def __init__(self, vector: list[float]):
+    def __init__(self, vector: list[float], rewrite_reply: str | None = "rewritten standalone query"):
         self._vector = vector
+        self.rewrite_reply = rewrite_reply
+        self.generate_content_calls: list[str] = []
 
     def embed_content(self, model, contents, config):
         return SimpleNamespace(embeddings=[FakeEmbedding(self._vector) for _ in contents])
+
+    def generate_content(self, model, contents, config=None):
+        self.generate_content_calls.append(contents)
+        if self.rewrite_reply is None:
+            raise RuntimeError("simulated generate_content failure")
+        return SimpleNamespace(text=self.rewrite_reply)
 
 
 class FakeChat:
@@ -58,15 +68,24 @@ class FakeChats:
 
 
 class FakeClient:
-    def __init__(self, vector: list[float], reply: str = "canned answer"):
-        self.models = FakeModels(vector)
+    def __init__(
+        self,
+        vector: list[float],
+        reply: str = "canned answer",
+        rewrite_reply: str | None = "rewritten standalone query",
+    ):
+        self.models = FakeModels(vector, rewrite_reply)
         self.chats = FakeChats(reply)
 
 
 @pytest.fixture
 def fake_client():
-    def _make(vector: list[float], reply: str = "canned answer") -> FakeClient:
-        return FakeClient(vector, reply)
+    def _make(
+        vector: list[float],
+        reply: str = "canned answer",
+        rewrite_reply: str | None = "rewritten standalone query",
+    ) -> FakeClient:
+        return FakeClient(vector, reply, rewrite_reply)
 
     return _make
 

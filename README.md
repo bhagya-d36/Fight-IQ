@@ -52,6 +52,25 @@ Override the bind address/port with env vars if needed: `HOST`, `PORT` (defaults
 `127.0.0.1:8000`). To deploy, run `uvicorn server:app --host 0.0.0.0 --port $PORT`
 on any host that has `GEMINI_API_KEY` set and `vector-store.json` present.
 
+## Answer quality
+
+A few things beyond plain vector search improve retrieval and answers:
+
+- **Query rewriting** — on follow-up turns, the raw question is rewritten into a
+  standalone search query using recent conversation context before retrieval
+  (so "when did he last fight?" resolves to the fighter named in the prior
+  answer). Toggle with `ENABLE_QUERY_REWRITE`; window size via `REWRITE_HISTORY_TURNS`.
+- **Chunk overlap** — packed chunks in oversized sections carry a small tail of
+  the previous chunk forward (`MAX_CHUNK_OVERLAP`), so a fact split across a
+  packing boundary isn't orphaned. Changing it requires `python ingest.py --force`
+  to re-embed.
+- **Hybrid search** — a BM25 keyword pass is fused with vector search via
+  reciprocal rank fusion, so exact names/records aren't lost to semantically-similar
+  chunks. The no-match decision stays cosine-only — keyword overlap alone can't
+  manufacture an answer. Toggle with `HYBRID_SEARCH`; fusion constant via `RRF_K`.
+- **Inline citations** — answers cite `[1][2]`-style bracket numbers back to the
+  numbered CONTEXT excerpts; the web UI links them to the matching source row.
+
 ## Files
 
 | File | Role |
