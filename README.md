@@ -1,8 +1,9 @@
-# RAG Chat — Python
+# FightIQ
 
-A small, standalone Retrieval-Augmented Generation (RAG) chatbot prototype.
-Put markdown files in `knowledge-base/`, embed them, and chat with an
-assistant that answers only from that content.
+A Retrieval-Augmented Generation (RAG) chatbot for UFC/MMA knowledge —
+champions, rankings, rules, weight classes, and event history. Put markdown
+files in `knowledge-base/`, embed them, and chat with an assistant that
+answers only from that content, with citations back to the source.
 
 ## Setup (one time)
 
