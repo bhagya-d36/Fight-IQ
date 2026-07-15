@@ -23,3 +23,4 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
 
 def dimension() -> int:
     return _get_model().get_embedding_dimension()
+

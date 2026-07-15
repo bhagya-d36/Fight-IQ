@@ -92,3 +92,4 @@ Dhabi.
 No. The UFC Women's Featherweight Championship has been vacant and the
 division largely inactive since former two-division champion Amanda Nunes
 stepped away from competition in 2023.
+

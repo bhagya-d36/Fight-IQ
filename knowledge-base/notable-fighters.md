@@ -107,3 +107,4 @@ Joshua Van is a mixed martial artist from Myanmar and the current UFC
 Flyweight Champion. He shocked the division with a first-round TKO of
 long-reigning former champion Alexandre Pantoja in December 2025 to win the
 title.
+

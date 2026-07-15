@@ -98,3 +98,4 @@ def test_single_chunk_section_unaffected_by_overlap():
     chunks = chunk_markdown("doc.md", text, max_chars=1500, overlap=200)
     assert len(chunks) == 1
     assert chunks[0].count("Just one short paragraph.") == 1
+

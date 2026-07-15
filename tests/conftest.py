@@ -63,3 +63,4 @@ def sample_store():
             {"source": "a.md", "text": "chunk three", "embedding": [0.9, 0.1, 0.0]},
         ],
     }
+

@@ -45,3 +45,4 @@ lists.
 The UFC publishes its official, current rankings at ufc.com/rankings. Because
 rankings update weekly, this knowledge base only tracks broad context about
 how the system works, not exact current rankings positions.
+
