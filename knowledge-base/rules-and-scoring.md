@@ -57,3 +57,4 @@ These are discretionary bonus payments the UFC awards to fighters after an
 event for standout individual performances ("Performance of the Night") or
 for the most exciting fight on the card ("Fight of the Night"), in addition
 to a fighter's contracted purse.
+

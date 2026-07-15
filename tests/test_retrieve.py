@@ -38,3 +38,4 @@ def test_score_is_attached():
     hits = retrieve(store, "question", top_k=3, min_similarity=-1.0)
     assert all("score" in h for h in hits)
     assert hits[0]["score"] > hits[-1]["score"]
+

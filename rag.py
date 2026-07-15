@@ -262,3 +262,4 @@ class GroundedChat:
                 self._record_turn(question, answer)
 
         return hits, chunks()
+

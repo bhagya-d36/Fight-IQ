@@ -39,3 +39,4 @@ As of 2026, UFC events are broadcast in the United States on Paramount+,
 following a major broadcast rights deal. Availability varies by country and
 event tier, and this changes periodically as media rights deals are renewed —
 check local listings for the current arrangement in your region.
+

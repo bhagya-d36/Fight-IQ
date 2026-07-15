@@ -110,3 +110,4 @@ the store is out of sync.
 ---
 
 Next: [4. How chat works](04-how-chat-works.md)
+

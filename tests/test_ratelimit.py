@@ -50,3 +50,4 @@ def test_stale_keys_are_pruned():
     now["t"] = 61  # both windows elapsed
     limiter.allow("c")  # triggers pruning
     assert len(limiter) == 1  # only "c" remains
+

@@ -89,3 +89,4 @@ def test_rewrite_disabled_via_config(fake_provider, monkeypatch):
     chat.ask("when did he last fight?")
 
     assert provider.complete_calls == []
+

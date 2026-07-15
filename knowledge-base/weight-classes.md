@@ -40,3 +40,4 @@ non-title fight, with the fighter who missed weight typically forfeiting a
 percentage of their purse to their opponent. If it's a title fight, the
 title is no longer on the line for the fighter who missed weight, even if
 they win.
+

@@ -48,3 +48,4 @@ Shanghai, China.
 
 Yes. A UFC Fight Night card is scheduled for September 5, 2026, at the Accor
 Arena in Paris, France.
+
