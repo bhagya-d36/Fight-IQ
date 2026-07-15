@@ -1,23 +1,24 @@
 """ingest.py — reads every .md file in ./knowledge-base, splits it into chunks,
-embeds each chunk with Gemini, and saves everything to vector-store.json.
+embeds each chunk locally with sentence-transformers, and saves everything to
+vector-store.json.
 
 Re-run this whenever you edit the knowledge base:  python ingest.py
 Unchanged files are skipped and their existing chunks/embeddings are reused —
 only new or edited files are re-embedded.
 
-Preview chunking without API calls:  python ingest.py --dry-run
-Re-embed everything from scratch:     python ingest.py --force
+Preview chunking without embedding:  python ingest.py --dry-run
+Re-embed everything from scratch:    python ingest.py --force
 """
 
 import hashlib
 import json
-import os
 import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 import config
+import embeddings
 from net_fix import prefer_ipv4
 
 prefer_ipv4()
@@ -29,9 +30,6 @@ STORE_VERSION = 3
 
 DRY_RUN = "--dry-run" in sys.argv
 FORCE = "--force" in sys.argv
-
-if not os.environ.get("GEMINI_API_KEY") and not DRY_RUN:
-    sys.exit("Missing GEMINI_API_KEY. Create a .env file (see .env.example).")
 
 
 def _overlap_tail(body: str, overlap: int) -> str:
@@ -116,7 +114,6 @@ def load_reusable_store(force: bool) -> dict | None:
     if (
         store.get("version") != STORE_VERSION
         or store.get("model") != config.EMBEDDING_MODEL
-        or store.get("dim") != config.EMBEDDING_DIM
         or store.get("chunkChars") != config.MAX_CHUNK_CHARS
         or store.get("chunkOverlap") != config.MAX_CHUNK_OVERLAP
     ):
@@ -124,26 +121,18 @@ def load_reusable_store(force: bool) -> dict | None:
     return store
 
 
-def embed_entries(client, entries: list[dict]) -> None:
+def embed_entries(entries: list[dict]) -> None:
     """Embed `entries` in place, adding an "embedding" key to each."""
     if not entries:
         return
-    from google.genai import types
 
     print(f"Embedding {len(entries)} chunk(s) with {config.EMBEDDING_MODEL}...")
     BATCH = 50
     for i in range(0, len(entries), BATCH):
         batch = entries[i : i + BATCH]
-        res = client.models.embed_content(
-            model=config.EMBEDDING_MODEL,
-            contents=[e["text"] for e in batch],
-            config=types.EmbedContentConfig(
-                output_dimensionality=config.EMBEDDING_DIM,
-                task_type="RETRIEVAL_DOCUMENT",
-            ),
-        )
-        for entry, embedding in zip(batch, res.embeddings):
-            entry["embedding"] = list(embedding.values)
+        vectors = embeddings.embed_texts([e["text"] for e in batch])
+        for entry, vector in zip(batch, vectors):
+            entry["embedding"] = vector
         print(f"  {min(i + BATCH, len(entries))}/{len(entries)}")
 
 
@@ -195,17 +184,14 @@ def main() -> None:
         print(f"\nDry run: {len(entries)} chunks total. No embeddings created.")
         return
 
-    import rag  # imported lazily so --dry-run never needs an API key
-
-    client = rag.make_client()
-    embed_entries(client, to_embed)
+    embed_entries(to_embed)
 
     STORE_FILE.write_text(
         json.dumps(
             {
                 "version": STORE_VERSION,
                 "model": config.EMBEDDING_MODEL,
-                "dim": config.EMBEDDING_DIM,
+                "dim": embeddings.dimension(),
                 "chunkChars": config.MAX_CHUNK_CHARS,
                 "chunkOverlap": config.MAX_CHUNK_OVERLAP,
                 "createdAt": datetime.now(timezone.utc).isoformat(),

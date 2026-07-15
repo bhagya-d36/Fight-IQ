@@ -4,3 +4,5 @@ __pycache__/
 vector-store.json
 server.log
 .claude/
+CLAUDE.md
+SUCCESS_STRATEGY.md

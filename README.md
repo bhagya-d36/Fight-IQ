@@ -12,10 +12,12 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-Then copy `.env.example` to `.env` and put your Gemini API key in it
-(free key: https://aistudio.google.com/apikey). `.env.example` also lists
-optional overrides (model names, `TOP_K`, `MIN_SIMILARITY`, timeouts, etc.) —
-defaults live in `config.py`.
+Then copy `.env.example` to `.env`, set `LLM_PROVIDER` to whichever chat LLM
+you want (`gemini`, `openai`, `anthropic`, `deepseek`, or `kimi`), and put that
+provider's API key in it. `.env.example` also lists optional overrides (model
+names, `TOP_K`, `MIN_SIMILARITY`, timeouts, etc.) — defaults live in
+`config.py`. Embeddings run locally (`sentence-transformers`, no key needed),
+so `ingest.py` never requires an API key.
 
 For development, install test/lint tooling too: `pip install -r requirements-dev.txt`.
 
@@ -24,7 +26,7 @@ For development, install test/lint tooling too: `pip install -r requirements-dev
 ```
 python ingest.py            # embed the knowledge base -> vector-store.json
 python chat.py               # start chatting (terminal)
-python ingest.py --dry-run   # preview chunking without API calls
+python ingest.py --dry-run   # preview chunking without embedding
 python ingest.py --force     # re-embed every file, ignoring the cache
 ```
 
@@ -50,7 +52,7 @@ sessions expire), with each session's own chat history capped at
 
 Override the bind address/port with env vars if needed: `HOST`, `PORT` (defaults
 `127.0.0.1:8000`). To deploy, run `uvicorn server:app --host 0.0.0.0 --port $PORT`
-on any host that has `GEMINI_API_KEY` set and `vector-store.json` present.
+on any host that has the chosen provider's API key set and `vector-store.json` present.
 
 The server also exposes `GET /health` (chunk count, model, store version, live
 session count) for deploy probes, caps question length at `MAX_QUESTION_CHARS`
@@ -82,12 +84,14 @@ A few things beyond plain vector search improve retrieval and answers:
 
 | File | Role |
 |---|---|
-| `ingest.py` | Chunk + embed the knowledge base into `vector-store.json` (incremental, `--force` to rebuild) |
+| `ingest.py` | Chunk + locally embed the knowledge base into `vector-store.json` (incremental, `--force` to rebuild) |
+| `embeddings.py` | Local sentence-transformers embedding model (no API key) |
+| `llm.py` | Chat-provider abstraction (`ChatProvider`) + adapters for Gemini, OpenAI-compatible, and Anthropic |
 | `rag.py` | Shared retrieval + grounded multi-turn chat logic (`GroundedChat`) used by both entry points |
 | `sessions.py` | Bounded, TTL-evicting in-memory store used to keep one `GroundedChat` per web session |
 | `ratelimit.py` | Fixed-window per-IP rate limiter used by `server.py` |
 | `config.py` | All tunable settings, overridable via env vars (see `.env.example`) |
-| `chat.py` | Terminal chat: retrieve top chunks, grounded Gemini reply, multi-turn memory |
+| `chat.py` | Terminal chat: retrieve top chunks, grounded LLM reply, multi-turn memory |
 | `server.py` | FastAPI app: `/api/ask`, `/api/ask/stream` (SSE), session-aware, serves `web/` |
 | `web/` | Hand-built frontend (`index.html`, `styles.css`, `app.js`) |
 | `tests/` | Offline pytest suite (`pytest -q`) — no network calls |

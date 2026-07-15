@@ -1,20 +1,17 @@
 """rag.py — shared retrieval + grounded-answer logic for chat.py and server.py.
 
 Loads vector-store.json, embeds a question, retrieves the top-K most similar
-chunks, and asks Gemini to answer using only that context.
+chunks, and asks the configured chat LLM to answer using only that context.
 """
 
 import json
 import math
-import os
 import re
 from collections.abc import Iterator
 from pathlib import Path
 
-from google import genai
-from google.genai import types
-
 import config
+import embeddings
 from net_fix import prefer_ipv4
 
 prefer_ipv4()
@@ -59,11 +56,11 @@ def validate_store(store: dict) -> None:
     entries = store.get("entries")
     if not entries:
         raise ValueError("vector-store.json has no entries. Run `python ingest.py --force`.")
-    if store.get("model") != config.EMBEDDING_MODEL or store.get("dim") != config.EMBEDDING_DIM:
+    if store.get("model") != config.EMBEDDING_MODEL or store.get("dim") != embeddings.dimension():
         raise ValueError(
             f"vector-store.json was built with model={store.get('model')!r} "
             f"dim={store.get('dim')!r}, but the app is configured for "
-            f"model={config.EMBEDDING_MODEL!r} dim={config.EMBEDDING_DIM!r}. "
+            f"model={config.EMBEDDING_MODEL!r} dim={embeddings.dimension()!r}. "
             "Run `python ingest.py --force` to rebuild it."
         )
     if len(entries[0].get("embedding", [])) != store["dim"]:
@@ -82,22 +79,6 @@ def load_store() -> dict:
         raise ValueError("vector-store.json is corrupt. Run `python ingest.py --force`.") from err
     validate_store(store)
     return store
-
-
-def make_client() -> genai.Client:
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        raise RuntimeError("Missing GEMINI_API_KEY. Create a .env file (see .env.example).")
-    # The SDK retries 408/429/5xx and connect/timeout errors with exponential
-    # backoff. Only the initial request is retried for streams — a drop
-    # mid-stream is not.
-    return genai.Client(
-        api_key=api_key,
-        http_options=types.HttpOptions(
-            timeout=config.GEMINI_TIMEOUT_MS,  # milliseconds; per-read for streams
-            retry_options=types.HttpRetryOptions(attempts=config.GEMINI_RETRY_ATTEMPTS),
-        ),
-    )
 
 
 def cosine_similarity(a: list[float], b: list[float]) -> float:
@@ -163,7 +144,6 @@ def _ranks(scores: list[float]) -> list[int]:
 
 def retrieve(
     store: dict,
-    client: genai.Client,
     question: str,
     top_k: int = TOP_K,
     min_similarity: float = MIN_SIMILARITY,
@@ -172,15 +152,7 @@ def retrieve(
     if hybrid is None:
         hybrid = config.HYBRID_SEARCH
 
-    res = client.models.embed_content(
-        model=EMBEDDING_MODEL,
-        contents=[question],
-        config=types.EmbedContentConfig(
-            output_dimensionality=store["dim"],
-            task_type="RETRIEVAL_QUERY",
-        ),
-    )
-    q_vec = list(res.embeddings[0].values)
+    q_vec = embeddings.embed_texts([question])[0]
     cos = [cosine_similarity(q_vec, e["embedding"]) for e in store["entries"]]
     scored = [{**e, "score": cos[i]} for i, e in enumerate(store["entries"])]
 
@@ -216,7 +188,7 @@ def build_prompt(question: str, hits: list[dict]) -> str:
     return f"CONTEXT:\n{build_context(hits)}\n\nQUESTION: {question}"
 
 
-def rewrite_query(client: genai.Client, question: str, turns: list[dict]) -> str:
+def rewrite_query(provider, question: str, turns: list[dict]) -> str:
     """Rewrite a follow-up into a standalone search query using recent (q, a)
     turns, so retrieval can resolve pronouns like "he" or "that fight".
     Falls back to the original question on any error.
@@ -224,84 +196,67 @@ def rewrite_query(client: genai.Client, question: str, turns: list[dict]) -> str
     convo = "\n".join(f"User: {t['q']}\nAssistant: {t['a']}" for t in turns)
     prompt = f"{REWRITE_INSTRUCTION}\n\nCONVERSATION:\n{convo}\n\nFOLLOW-UP: {question}\n\nSTANDALONE QUERY:"
     try:
-        response = client.models.generate_content(
-            model=CHAT_MODEL,
-            contents=prompt,
-            config=types.GenerateContentConfig(temperature=0.0),
-        )
-        rewritten = (response.text or "").strip().strip('"').strip()
+        rewritten = provider.complete(prompt, temperature=0.0).strip().strip('"').strip()
         return rewritten or question
     except Exception:
         return question
 
 
 class GroundedChat:
-    """Multi-turn grounded chat: per-question retrieval plus a Gemini chat
-    session that keeps history so follow-ups ("and his last fight?") resolve.
+    """Multi-turn grounded chat: per-question retrieval plus a locally-kept
+    (question, answer) history so follow-ups ("and his last fight?") resolve.
+    Only the bare Q&A is stored per turn — retrieved context is injected only
+    for the current question, never resent for prior turns.
     """
 
-    def __init__(self, store: dict, client: genai.Client, max_turns: int = config.MAX_CHAT_TURNS) -> None:
+    def __init__(self, store: dict, provider, max_turns: int = config.MAX_CHAT_TURNS) -> None:
         self._store = store
-        self._client = client
+        self._provider = provider
         self._max_turns = max_turns
-        self._chat = self._new_chat()
-        # (question, answer) pairs kept for the query rewriter — deliberately
-        # separate from the chat's own history, whose "user" turns are full
-        # CONTEXT-laden prompts unfit for a compact rewrite prompt.
         self._turns: list[dict] = []
 
-    def _new_chat(self, history=None):
-        return self._client.chats.create(
-            model=CHAT_MODEL,
-            config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_INSTRUCTION,
-                temperature=0.2,
-            ),
-            history=history,
-        )
-
-    def _trim_history(self) -> None:
-        history = self._chat.get_history(curated=True)
-        limit = self._max_turns * 2
-        if len(history) > limit:
-            self._chat = self._new_chat(history=history[-limit:])
+    def _history_messages(self) -> list[dict]:
+        messages = []
+        for t in self._turns:
+            messages.append({"role": "user", "content": t["q"]})
+            messages.append({"role": "assistant", "content": t["a"]})
+        return messages
 
     def _search_query(self, question: str) -> str:
         if config.ENABLE_QUERY_REWRITE and self._turns:
             recent = self._turns[-config.REWRITE_HISTORY_TURNS :]
-            return rewrite_query(self._client, question, recent)
+            return rewrite_query(self._provider, question, recent)
         return question
 
     def _record_turn(self, question: str, answer: str) -> None:
         self._turns.append({"q": question, "a": answer})
-        self._turns = self._turns[-config.REWRITE_HISTORY_TURNS :]
+        self._turns = self._turns[-self._max_turns :]
 
     def ask(self, question: str) -> tuple[str, list[dict]]:
         search_query = self._search_query(question)
-        hits = retrieve(self._store, self._client, search_query)
+        hits = retrieve(self._store, search_query)
         if not hits:
             return NO_MATCH_ANSWER, hits
-        self._trim_history()
-        response = self._chat.send_message(build_prompt(question, hits))
-        answer = response.text or EMPTY_RESPONSE_ANSWER
-        if response.text:
+        messages = self._history_messages() + [{"role": "user", "content": build_prompt(question, hits)}]
+        answer = self._provider.chat(messages, system=SYSTEM_INSTRUCTION, temperature=0.2)
+        if answer:
             self._record_turn(question, answer)
-        return answer, hits
+        return answer or EMPTY_RESPONSE_ANSWER, hits
 
     def ask_stream(self, question: str) -> tuple[list[dict], Iterator[str]]:
         search_query = self._search_query(question)
-        hits = retrieve(self._store, self._client, search_query)
+        hits = retrieve(self._store, search_query)
         if not hits:
             return hits, iter((NO_MATCH_ANSWER,))
-        self._trim_history()
-        stream = self._chat.send_message_stream(build_prompt(question, hits))
+        messages = self._history_messages() + [{"role": "user", "content": build_prompt(question, hits)}]
+        stream = self._provider.stream_chat(messages, system=SYSTEM_INSTRUCTION, temperature=0.2)
 
         def chunks() -> Iterator[str]:
             parts: list[str] = []
-            for chunk in stream:
-                if chunk.text:
-                    parts.append(chunk.text)
-                    yield chunk.text
+            for piece in stream:
+                if piece:
+                    parts.append(piece)
+                    yield piece
             answer = "".join(parts)
             if answer:
                 self._record_turn(question, answer)

@@ -43,14 +43,15 @@ def env_bool(name: str, default: bool = False) -> bool:
     return raw.strip().lower() in ("1", "true", "yes", "on")
 
 
-CHAT_MODEL = env_str("CHAT_MODEL", "gemini-2.5-flash")
-EMBEDDING_MODEL = env_str("EMBEDDING_MODEL", "gemini-embedding-001")
-EMBEDDING_DIM = env_int("EMBEDDING_DIM", 768)  # plenty for a small KB; also the standard pgvector column size
+LLM_PROVIDER = env_str("LLM_PROVIDER", "gemini").strip().lower()  # gemini, openai, anthropic, deepseek, kimi
+CHAT_MODEL = env_str("CHAT_MODEL", "")  # blank = provider's default model (see llm.py)
+EMBEDDING_MODEL = env_str("EMBEDDING_MODEL", "all-MiniLM-L6-v2")  # local sentence-transformers model
 TOP_K = env_int("TOP_K", 4)  # how many chunks to retrieve per question
 MIN_SIMILARITY = env_float("MIN_SIMILARITY", 0.35)  # below this, treat the KB as having no answer
 MAX_CHUNK_CHARS = env_int("MAX_CHUNK_CHARS", 1500)  # ~350-400 tokens per chunk
-GEMINI_TIMEOUT_MS = env_int("GEMINI_TIMEOUT_MS", 60_000)  # per-request timeout (per-read for streams)
-GEMINI_RETRY_ATTEMPTS = env_int("GEMINI_RETRY_ATTEMPTS", 4)  # total tries per request, including the first
+LLM_TIMEOUT_MS = env_int("LLM_TIMEOUT_MS", 60_000)  # per-request timeout (per-read for streams)
+LLM_RETRY_ATTEMPTS = env_int("LLM_RETRY_ATTEMPTS", 4)  # total tries per request, including the first
+MAX_OUTPUT_TOKENS = env_int("MAX_OUTPUT_TOKENS", 1024)  # Anthropic requires an explicit cap
 FORCE_IPV4 = env_bool("FORCE_IPV4")  # skip IPv6 DNS results; see net_fix.py
 MAX_SESSIONS = env_int("MAX_SESSIONS", 20)  # web chat sessions kept in memory before LRU eviction
 SESSION_TTL_MINUTES = env_int("SESSION_TTL_MINUTES", 60)  # idle web sessions expire after this

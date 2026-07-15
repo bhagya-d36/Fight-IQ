@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>FightIQ — Assistant</title>
+<title>FightIQ</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link
   href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=Barlow:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap"
   rel="stylesheet"
 />
-<link rel="stylesheet" href="/styles.css" />
+<link rel="stylesheet" href="/styles.css?v=7" />
 </head>
 <body>
 
@@ -18,14 +18,11 @@
 
 <header class="statusbar">
   <div class="statusbar__brand">
-    <span class="statusbar__mark">FightIQ</span>
-    <span class="statusbar__divider">&middot;</span>
-    <span class="statusbar__label">ASSISTANT</span>
+    <span class="statusbar__mark">Tale of the Cage</span>
   </div>
   <div class="statusbar__actions">
     <button class="statusbar__new" id="new-chat" type="button">NEW CHAT</button>
     <div class="statusbar__chip" id="status-chip" data-state="idle">
-      <span class="statusbar__dot"></span>
       <span id="status-text">READY</span>
     </div>
   </div>
@@ -34,11 +31,10 @@
 <main class="arena">
   <section class="transcript" id="transcript">
     <div class="hero" id="hero">
-      <p class="hero__eyebrow">TALE OF THE TAPE</p>
-      <h1 class="hero__title">Ask the knowledge base.</h1>
-      <p class="hero__sub">Grounded answers only — every reply cites the exact source chunks it came from.</p>
+      <h1 class="hero__title">FightIQ</h1>
+      <p class="hero__sub">AI-Powered Fight Game Library</p>
       <div class="chips" id="suggested-chips">
-        <button class="chip" type="button" data-q="Who is the current heavyweight champion?">Heavyweight champion?</button>
+        <button class="chip" type="button" data-q="Who is the current lightweight champion?">Lightweight champion?</button>
         <button class="chip" type="button" data-q="What are the UFC weight classes?">Weight classes</button>
         <button class="chip" type="button" data-q="How is a fight scored?">Scoring rules</button>
         <button class="chip" type="button" data-q="When was the UFC founded?">UFC history</button>
@@ -52,7 +48,7 @@
     class="inputbar__field"
     id="question-input"
     type="text"
-    placeholder="Ask about fighters, rules, weight classes…"
+    placeholder="Ask anything about Mixed Martial Arts"
     maxlength="300"
     autofocus
   />
@@ -61,7 +57,7 @@
   </button>
 </form>
 
-<footer class="arena-footer">Not affiliated with UFC / Zuffa &middot; answers are grounded in the local knowledge base</footer>
+<footer class="arena-footer">Not affiliated with UFC &middot; All answers are grounded in the knowledge base</footer>
 
 <template id="tpl-turn">
   <article class="turn">
@@ -76,8 +72,8 @@
         <button class="turn__retry" type="button">RETRY</button>
       </div>
       <div class="turn__sources" hidden>
-        <div class="turn__sources-label">SOURCES</div>
-        <div class="turn__sources-list"></div>
+        <button class="turn__sources-toggle" type="button" aria-expanded="false">SOURCES</button>
+        <div class="turn__sources-list" hidden></div>
       </div>
     </div>
   </article>
@@ -86,11 +82,9 @@
 <template id="tpl-source-row">
   <div class="srow">
     <span class="srow__name"></span>
-    <span class="srow__bar"><span class="srow__bar-fill"></span></span>
-    <span class="srow__score"></span>
   </div>
 </template>
 
-<script src="/app.js"></script>
+<script src="/app.js?v=6"></script>
 </body>
 </html>

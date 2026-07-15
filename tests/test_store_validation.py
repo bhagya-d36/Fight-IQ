@@ -21,14 +21,14 @@ def test_corrupt_json_raises_value_error(tmp_path, monkeypatch):
 
 def test_empty_entries_raises_value_error():
     with pytest.raises(ValueError, match="ingest.py --force"):
-        rag.validate_store({"model": rag.EMBEDDING_MODEL, "dim": 768, "entries": []})
+        rag.validate_store({"model": rag.EMBEDDING_MODEL, "dim": 3, "entries": []})
 
 
 def test_model_mismatch_raises_value_error():
     store = {
         "model": "some-other-model",
-        "dim": 768,
-        "entries": [{"source": "a.md", "text": "x", "embedding": [0.0] * 768}],
+        "dim": 3,
+        "entries": [{"source": "a.md", "text": "x", "embedding": [0.0] * 3}],
     }
     with pytest.raises(ValueError, match="ingest.py --force"):
         rag.validate_store(store)
@@ -38,7 +38,7 @@ def test_dim_mismatch_raises_value_error():
     store = {
         "model": rag.EMBEDDING_MODEL,
         "dim": 512,
-        "entries": [{"source": "a.md", "text": "x", "embedding": [0.0] * 768}],
+        "entries": [{"source": "a.md", "text": "x", "embedding": [0.0] * 512}],
     }
     with pytest.raises(ValueError, match="ingest.py --force"):
         rag.validate_store(store)
@@ -47,7 +47,7 @@ def test_dim_mismatch_raises_value_error():
 def test_embedding_length_mismatch_raises_value_error():
     store = {
         "model": rag.EMBEDDING_MODEL,
-        "dim": 768,
+        "dim": 3,
         "entries": [{"source": "a.md", "text": "x", "embedding": [0.0] * 100}],
     }
     with pytest.raises(ValueError, match="ingest.py --force"):
@@ -57,8 +57,8 @@ def test_embedding_length_mismatch_raises_value_error():
 def test_valid_store_passes():
     store = {
         "model": rag.EMBEDDING_MODEL,
-        "dim": 768,
-        "entries": [{"source": "a.md", "text": "x", "embedding": [0.0] * 768}],
+        "dim": 3,
+        "entries": [{"source": "a.md", "text": "x", "embedding": [0.0] * 3}],
     }
     rag.validate_store(store)  # no exception
 
@@ -69,7 +69,6 @@ def test_load_store_roundtrip(tmp_path, monkeypatch):
         "dim": 3,
         "entries": [{"source": "a.md", "text": "x", "embedding": [0.1, 0.2, 0.3]}],
     }
-    monkeypatch.setattr(rag.config, "EMBEDDING_DIM", 3)
     store_file = tmp_path / "vector-store.json"
     store_file.write_text(json.dumps(store), encoding="utf-8")
     monkeypatch.setattr(rag, "STORE_FILE", store_file)

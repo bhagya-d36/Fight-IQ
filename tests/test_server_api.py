@@ -4,6 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import config
+import llm
 import rag
 
 SAMPLE_STORE = {
@@ -15,19 +16,19 @@ SAMPLE_STORE = {
 
 
 @pytest.fixture
-def server_app(monkeypatch, fake_client):
-    client = fake_client([1.0, 0.0, 0.0], reply="canned answer")
+def server_app(monkeypatch, fake_provider):
+    provider = fake_provider(reply="canned answer")
     monkeypatch.setattr(rag, "load_store", lambda: SAMPLE_STORE)
-    monkeypatch.setattr(rag, "make_client", lambda: client)
+    monkeypatch.setattr(llm, "make_chat_provider", lambda: provider)
     sys.modules.pop("server", None)
-    import server  # re-imports fresh so it binds store/client via the patched functions
+    import server  # re-imports fresh so it binds store/provider via the patched functions
 
-    yield server, client
+    yield server, provider
     sys.modules.pop("server", None)
 
 
 def test_ask_happy_path(server_app):
-    server, _client = server_app
+    server, _provider = server_app
     with TestClient(server.app) as tc:
         res = tc.post("/api/ask", json={"question": "who is champ?"})
 
@@ -39,35 +40,38 @@ def test_ask_happy_path(server_app):
 
 
 def test_ask_empty_question_short_circuits(server_app):
-    server, client = server_app
+    server, provider = server_app
     with TestClient(server.app) as tc:
         res = tc.post("/api/ask", json={"question": "   "})
 
     assert res.json() == {"answer": "", "grounded": False, "sources": []}
-    assert client.chats.created == []
+    assert provider.chat_calls == []
 
 
 def test_ask_same_session_id_reuses_chat(server_app):
-    server, client = server_app
+    server, provider = server_app
     with TestClient(server.app) as tc:
         tc.post("/api/ask", json={"question": "q1", "session_id": "s1"})
         tc.post("/api/ask", json={"question": "q2", "session_id": "s1"})
 
-    assert len(client.chats.created) == 1
-    assert len(client.chats.created[0].messages) == 2
+    assert len(provider.chat_calls) == 2
+    # second call's history includes the first turn's Q&A plus the new prompt
+    assert len(provider.chat_calls[1]) == 3
 
 
 def test_ask_different_session_ids_get_different_chats(server_app):
-    server, client = server_app
+    server, provider = server_app
     with TestClient(server.app) as tc:
         tc.post("/api/ask", json={"question": "q1", "session_id": "s1"})
         tc.post("/api/ask", json={"question": "q2", "session_id": "s2"})
 
-    assert len(client.chats.created) == 2
+    assert len(provider.chat_calls) == 2
+    assert len(provider.chat_calls[0]) == 1
+    assert len(provider.chat_calls[1]) == 1
 
 
 def test_stream_events_in_order(server_app):
-    server, _client = server_app
+    server, _provider = server_app
     with TestClient(server.app) as tc, tc.stream(
         "GET", "/api/ask/stream", params={"q": "who is champ?", "session_id": "s1"}
     ) as res:
@@ -80,7 +84,7 @@ def test_stream_events_in_order(server_app):
 
 
 def test_stream_empty_question_only_emits_done(server_app):
-    server, _client = server_app
+    server, _provider = server_app
     with TestClient(server.app) as tc, tc.stream("GET", "/api/ask/stream", params={"q": "  "}) as res:
         body = "".join(res.iter_text())
 
@@ -89,7 +93,7 @@ def test_stream_empty_question_only_emits_done(server_app):
 
 
 def test_health_endpoint(server_app):
-    server, _client = server_app
+    server, _provider = server_app
     with TestClient(server.app) as tc:
         res = tc.get("/health")
 
@@ -100,7 +104,7 @@ def test_health_endpoint(server_app):
 
 
 def test_ask_rejects_question_over_max_length(server_app):
-    server, _client = server_app
+    server, _provider = server_app
     with TestClient(server.app) as tc:
         res = tc.post("/api/ask", json={"question": "x" * (config.MAX_QUESTION_CHARS + 1)})
 
@@ -108,17 +112,17 @@ def test_ask_rejects_question_over_max_length(server_app):
 
 
 def test_stream_rejects_query_over_max_length(server_app):
-    server, _client = server_app
+    server, _provider = server_app
     with TestClient(server.app) as tc:
         res = tc.get("/api/ask/stream", params={"q": "x" * (config.MAX_QUESTION_CHARS + 1)})
 
     assert res.status_code == 422
 
 
-def test_rate_limit_returns_429_when_exceeded(monkeypatch, fake_client):
-    client = fake_client([1.0, 0.0, 0.0], reply="canned answer")
+def test_rate_limit_returns_429_when_exceeded(monkeypatch, fake_provider):
+    provider = fake_provider(reply="canned answer")
     monkeypatch.setattr(rag, "load_store", lambda: SAMPLE_STORE)
-    monkeypatch.setattr(rag, "make_client", lambda: client)
+    monkeypatch.setattr(llm, "make_chat_provider", lambda: provider)
     monkeypatch.setattr(config, "RATE_LIMIT_REQUESTS", 1)
     sys.modules.pop("server", None)
     import server
@@ -134,10 +138,10 @@ def test_rate_limit_returns_429_when_exceeded(monkeypatch, fake_client):
     assert res2.status_code == 429
 
 
-def test_health_not_rate_limited(monkeypatch, fake_client):
-    client = fake_client([1.0, 0.0, 0.0], reply="canned answer")
+def test_health_not_rate_limited(monkeypatch, fake_provider):
+    provider = fake_provider(reply="canned answer")
     monkeypatch.setattr(rag, "load_store", lambda: SAMPLE_STORE)
-    monkeypatch.setattr(rag, "make_client", lambda: client)
+    monkeypatch.setattr(llm, "make_chat_provider", lambda: provider)
     monkeypatch.setattr(config, "RATE_LIMIT_REQUESTS", 1)
     sys.modules.pop("server", None)
     import server

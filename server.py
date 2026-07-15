@@ -13,10 +13,10 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from google.genai import errors
 from pydantic import BaseModel, Field
 
 import config
+import llm
 import rag  # importing rag loads config, which loads .env
 from ratelimit import RateLimiter
 from sessions import SessionStore
@@ -35,14 +35,14 @@ except (FileNotFoundError, ValueError) as err:
     sys.exit(str(err))
 
 try:
-    client = rag.make_client()
+    provider = llm.make_chat_provider()
 except RuntimeError as err:
     sys.exit(str(err))
 
 app = FastAPI(title="UFC RAG Assistant")
 
 sessions: SessionStore[rag.GroundedChat] = SessionStore(
-    factory=lambda: rag.GroundedChat(store, client),
+    factory=lambda: rag.GroundedChat(store, provider),
     max_sessions=config.MAX_SESSIONS,
     ttl_seconds=config.SESSION_TTL_MINUTES * 60,
 )
@@ -61,7 +61,7 @@ def _chat_for(session_id: str | None) -> rag.GroundedChat:
     """Reuse a session's chat if a valid id is given, else a one-shot chat."""
     if session_id and len(session_id) <= MAX_SESSION_ID_LEN:
         return sessions.get_or_create(session_id)
-    return rag.GroundedChat(store, client)
+    return rag.GroundedChat(store, provider)
 
 
 def rate_limit(request: Request) -> None:
@@ -76,7 +76,7 @@ def _sources_payload(hits: list[dict]) -> list[dict]:
     return [
         {
             "source": h["source"],
-            "label": h["text"].split("\n", 1)[0].strip(),
+            "label": h["text"].split("\n", 1)[0].split(" — ", 1)[0].strip(),
             "score": round(h["score"], 2),
         }
         for h in hits
@@ -109,8 +109,8 @@ def ask(req: AskRequest):
         chat = _chat_for(req.session_id)
         text, hits = chat.ask(question)
         return {"answer": text, "grounded": bool(hits), "sources": _sources_payload(hits)}
-    except errors.APIError as err:
-        logger.exception("Gemini API error answering question")
+    except llm.LLMError as err:
+        logger.exception("LLM error answering question")
         return JSONResponse(
             status_code=502,
             content={"answer": FRIENDLY_ERROR, "grounded": False, "sources": [], "error": str(err)},
