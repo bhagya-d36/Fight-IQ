@@ -1,7 +1,7 @@
 # FightIQ
 
-A Retrieval-Augmented Generation (RAG) chatbot for UFC/MMA knowledge —
-champions, rankings, rules, weight classes, and event history. Put markdown
+An AI-powered knowledge library for Mixed Martial Arts (Primarily UFC), with context grounded using Retrieval-Augmented Generation (RAG).
+Contains informations regarding champions, rankings, rules, weight classes, and event history. Put markdown
 files in `knowledge-base/`, embed them, and chat with an assistant that
 answers only from that content, with citations back to the source.
 
