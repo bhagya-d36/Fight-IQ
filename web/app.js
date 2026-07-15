@@ -49,15 +49,16 @@
   }
 
   function renderSources(container, sources) {
-    const label = container.querySelector(".turn__sources-label");
+    const toggle = container.querySelector(".turn__sources-toggle");
     const list = container.querySelector(".turn__sources-list");
     list.innerHTML = "";
+    list.hidden = true;
+    toggle.setAttribute("aria-expanded", "false");
     if (!sources.length) {
       container.hidden = true;
       return;
     }
     container.hidden = false;
-    label.textContent = "SOURCES";
     sources.forEach((s, i) => {
       const row = sourceRowTpl.content.cloneNode(true);
       const srow = row.querySelector(".srow");
@@ -66,24 +67,40 @@
       const displayName = s.label || s.source;
       nameEl.textContent = displayName;
       nameEl.title = displayName === s.source ? s.source : `${displayName} · ${s.source}`;
-      row.querySelector(".srow__score").textContent = s.score.toFixed(2);
-      row.querySelector(".srow__bar-fill").style.width = `${Math.round(s.score * 100)}%`;
       list.appendChild(row);
     });
   }
 
-  function escapeHtml(s) {
-    return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+  // Strips [n] citation markers from the text shown to the user — the
+  // Sources list below is the reference, not inline brackets in the prose.
+  function stripCitations(text) {
+    return text
+      .replace(/\[\d+\]/g, "")
+      .replace(/ {2,}/g, " ")
+      .replace(/ +([.,;:!?])/g, "$1")
+      .trim();
   }
 
-  // Renders the final answer text, linkifying [n] citation markers that fall
-  // within range of the sources list (out-of-range markers stay plain text).
-  function setAnswer(botText, text, sources) {
-    const n = sources.length;
-    botText.innerHTML = escapeHtml(text).replace(/\[(\d+)\]/g, (match, digits) => {
-      const i = parseInt(digits, 10);
-      return i >= 1 && i <= n ? `<button type="button" class="cite" data-index="${i}">[${i}]</button>` : match;
+  function citedIndices(text) {
+    return new Set([...text.matchAll(/\[(\d+)\]/g)].map((m) => m[1]));
+  }
+
+  function setAnswer(botText, text) {
+    botText.textContent = stripCitations(text);
+  }
+
+  // Hides any source row the model didn't actually cite, so the list matches
+  // what's really behind the answer instead of every chunk that was retrieved.
+  function filterSourcesToCited(sourcesBox, text) {
+    const cited = citedIndices(text);
+    const rows = sourcesBox.querySelectorAll(".srow");
+    let anyVisible = false;
+    rows.forEach((row) => {
+      const show = cited.has(row.dataset.index);
+      row.hidden = !show;
+      if (show) anyVisible = true;
     });
+    sourcesBox.hidden = !anyVisible;
   }
 
   function newTurn(question) {
@@ -100,7 +117,8 @@
     const sourcesBox = article.querySelector(".turn__sources");
     const sources = t.sources || [];
     renderSources(sourcesBox, sources);
-    setAnswer(botText, t.a, sources);
+    setAnswer(botText, t.a);
+    filterSourcesToCited(sourcesBox, t.a);
     return article;
   }
 
@@ -109,7 +127,7 @@
     hero.style.display = "none";
     for (const t of state.turns) renderCompletedTurn(t);
     const last = state.turns[state.turns.length - 1];
-    setStatus(last.grounded ? "grounded" : "nomatch", last.grounded ? "GROUNDED" : "NO MATCH");
+    setStatus(last.grounded ? "grounded" : "nomatch", last.grounded ? "ANSWERED" : "NO MATCH");
     transcript.parentElement.scrollTop = transcript.parentElement.scrollHeight;
   }
 
@@ -123,8 +141,9 @@
     if (!res.ok) throw new Error(data.answer || "request failed");
     const sources = data.sources || [];
     renderSources(sourcesBox, sources);
-    setAnswer(botText, data.answer, sources);
-    setStatus(data.grounded ? "grounded" : "nomatch", data.grounded ? "GROUNDED" : "NO MATCH");
+    setAnswer(botText, data.answer);
+    filterSourcesToCited(sourcesBox, data.answer);
+    setStatus(data.grounded ? "grounded" : "nomatch", data.grounded ? "ANSWERED" : "NO MATCH");
     return { answer: data.answer, grounded: data.grounded, sources };
   }
 
@@ -144,7 +163,7 @@
         grounded = !!data.grounded;
         sources = data.sources || [];
         renderSources(sourcesBox, sources);
-        setStatus(grounded ? "grounded" : "nomatch", grounded ? "GROUNDED" : "NO MATCH");
+        setStatus(grounded ? "grounded" : "nomatch", grounded ? "ANSWERED" : "NO MATCH");
       });
 
       es.addEventListener("token", (ev) => {
@@ -163,7 +182,8 @@
           reject(new Error(text || "stream failed"));
           return;
         }
-        setAnswer(botText, text, sources);
+        setAnswer(botText, text);
+        filterSourcesToCited(sourcesBox, text);
         resolve({ answer: text, grounded, sources });
       });
 
@@ -245,15 +265,12 @@
       return;
     }
 
-    const cite = ev.target.closest(".cite");
-    if (cite) {
-      const article = cite.closest(".turn");
-      const row = article.querySelector(`.srow[data-index="${cite.dataset.index}"]`);
-      if (row) {
-        row.classList.add("srow--flash");
-        row.scrollIntoView({ block: "nearest", behavior: "smooth" });
-        setTimeout(() => row.classList.remove("srow--flash"), 1200);
-      }
+    const sourcesToggle = ev.target.closest(".turn__sources-toggle");
+    if (sourcesToggle) {
+      const list = sourcesToggle.parentElement.querySelector(".turn__sources-list");
+      const expanded = sourcesToggle.getAttribute("aria-expanded") === "true";
+      sourcesToggle.setAttribute("aria-expanded", String(!expanded));
+      list.hidden = expanded;
     }
   });
 
