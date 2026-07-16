@@ -22,3 +22,4 @@ def test_scale_invariant():
     scaled = [x * 10 for x in b]
     assert math.isclose(cosine_similarity(a, b), cosine_similarity(a, scaled), rel_tol=1e-9)
 
+

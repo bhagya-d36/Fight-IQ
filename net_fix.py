@@ -34,3 +34,4 @@ def prefer_ipv4(force: bool | None = None) -> None:
     if force:
         socket.getaddrinfo = _ipv4_only_getaddrinfo
 
+

@@ -89,3 +89,4 @@ def test_history_trimmed_after_max_turns(fake_provider):
     assert len(chat._turns) == 1
     assert chat._turns[0]["q"] == "q3"
 
+

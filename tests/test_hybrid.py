@@ -82,3 +82,4 @@ def test_tokenize_keeps_records_and_unicode_names():
     assert "12-3" in tokens
     assert "procházka" in tokens
 
+

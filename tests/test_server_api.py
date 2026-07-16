@@ -156,3 +156,4 @@ def test_health_not_rate_limited(monkeypatch, fake_provider):
 
     assert health_res.status_code == 200
 
+

@@ -66,3 +66,4 @@ RATE_LIMIT_ENABLED = env_bool("RATE_LIMIT_ENABLED", True)  # cap requests per cl
 RATE_LIMIT_REQUESTS = env_int("RATE_LIMIT_REQUESTS", 30)  # requests allowed per window, per client IP
 RATE_LIMIT_WINDOW_SECONDS = env_int("RATE_LIMIT_WINDOW_SECONDS", 60)  # rate limit window length
 
+

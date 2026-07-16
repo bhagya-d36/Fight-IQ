@@ -57,3 +57,4 @@ def test_env_bool_default(monkeypatch):
     assert config.env_bool("SOME_BOOL") is False
     assert config.env_bool("SOME_BOOL", default=True) is True
 
+
