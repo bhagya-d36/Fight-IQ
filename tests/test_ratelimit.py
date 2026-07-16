@@ -51,3 +51,4 @@ def test_stale_keys_are_pruned():
     limiter.allow("c")  # triggers pruning
     assert len(limiter) == 1  # only "c" remains
 
+

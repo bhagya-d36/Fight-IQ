@@ -204,3 +204,4 @@ def make_chat_provider() -> ChatProvider:
         )
     return OpenAIChat(api_key, model, info.get("base_url"), config.LLM_TIMEOUT_MS, config.LLM_RETRY_ATTEMPTS)
 
+

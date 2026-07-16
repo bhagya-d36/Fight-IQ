@@ -39,3 +39,4 @@ def test_score_is_attached():
     assert all("score" in h for h in hits)
     assert hits[0]["score"] > hits[-1]["score"]
 
+

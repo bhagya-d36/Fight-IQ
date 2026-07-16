@@ -75,3 +75,4 @@ def test_load_store_roundtrip(tmp_path, monkeypatch):
     loaded = rag.load_store()
     assert loaded == store
 
+

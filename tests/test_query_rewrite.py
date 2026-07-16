@@ -90,3 +90,4 @@ def test_rewrite_disabled_via_config(fake_provider, monkeypatch):
 
     assert provider.complete_calls == []
 
+

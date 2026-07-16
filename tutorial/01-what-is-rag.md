@@ -78,3 +78,4 @@ hundreds of documents. Retrieval keeps prompts small, cheap, and on-topic.
 
 Next: [2. Setup and run](02-setup-and-run.md)
 
+
