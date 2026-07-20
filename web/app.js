@@ -2,6 +2,7 @@
   const form = document.getElementById("ask-form");
   const input = document.getElementById("question-input");
   const submitBtn = form.querySelector(".inputbar__submit");
+  const submitLabel = submitBtn.querySelector("span");
   const transcript = document.getElementById("transcript");
   const hero = document.getElementById("hero");
   const chipRow = document.getElementById("suggested-chips");
@@ -206,6 +207,7 @@
     setStatus("thinking", "THINKING");
     input.disabled = true;
     submitBtn.disabled = true;
+    submitLabel.textContent = "…";
 
     let result = null;
     try {
@@ -226,6 +228,7 @@
       botText.classList.remove("is-empty");
       input.disabled = false;
       submitBtn.disabled = false;
+      submitLabel.textContent = "ASK";
       input.focus();
       transcript.parentElement.scrollTop = transcript.parentElement.scrollHeight;
     }

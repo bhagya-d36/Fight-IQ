@@ -1,5 +1,8 @@
 """Shared fixtures for the offline test suite — no network calls."""
 
+import uuid
+
+import chromadb
 import pytest
 
 import embeddings
@@ -47,6 +50,40 @@ def stub_embeddings(monkeypatch):
     """
     monkeypatch.setattr(embeddings, "embed_texts", lambda texts: [[1.0, 0.0, 0.0] for _ in texts])
     monkeypatch.setattr(embeddings, "dimension", lambda: 3)
+
+
+@pytest.fixture
+def make_store():
+    """Factory building a rag.load_store()-shaped dict from plain
+    {"source", "text", "embedding"} dicts, backed by a real (in-memory)
+    Chroma collection — so retrieve() exercises the actual ANN + distance
+    conversion path instead of a hand-rolled stand-in.
+    """
+
+    def _make(entries: list[dict], model: str = "all-MiniLM-L6-v2", dim: int = 3) -> dict:
+        # EphemeralClient() instances share in-process storage, so a fixed
+        # collection name would collide across tests/calls — use a fresh one.
+        collection = chromadb.EphemeralClient().create_collection(
+            f"chunks-{uuid.uuid4().hex}", embedding_function=None, metadata={"hnsw:space": "cosine"}
+        )
+        ids = [str(i) for i in range(len(entries))]
+        if entries:
+            collection.add(
+                ids=ids,
+                embeddings=[e["embedding"] for e in entries],
+                documents=[e["text"] for e in entries],
+                metadatas=[{"source": e["source"]} for e in entries],
+            )
+        return {
+            "collection": collection,
+            "entries": [{"source": e["source"], "text": e["text"]} for e in entries],
+            "ids": ids,
+            "_id_to_idx": {cid: i for i, cid in enumerate(ids)},
+            "model": model,
+            "dim": dim,
+        }
+
+    return _make
 
 
 @pytest.fixture

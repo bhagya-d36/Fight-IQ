@@ -1,0 +1,6 @@
+# Ipamorelin
+
+Ipamorelin (INN; development code NNC 26-0161) is a peptide selective agonist of the ghrelin/growth hormone secretagogue receptor (GHS) and a growth hormone secretagogue. It is a pentapeptide with the amino acid sequence Aib-His-D-2-Nal-D-Phe-Lys-NH2 that was derived from GHRP-1.
+Ipamorelin significantly increases plasma growth hormone (GH) levels in both animals and humans. In addition, ipamorelin stimulates body weight gain in animals. In rats, ipamorelin has also been reported to induce longitudinal bone growth. Like pralmorelin and GHRP-6, ipamorelin does not affect prolactin, follicle-stimulating hormone (FSH), luteinizing hormone (LH), or thyroid-stimulating hormone (TSH) levels. However, unlike pralmorelin (GHRP-2) and GHRP-6, but similarly to growth hormone-releasing hormone (GHRH), ipamorelin does not stimulate the secretion of adrenocorticotropic hormone (ACTH), or cortisol, and is highly selective for inducing the secretion only of GH.
+Ipamorelin was originally developed by Novo Nordisk, and was investigated in phase II clinical trials by Helsinn Therapeutics for the treatment of postoperative ileus, but was discontinued due to lack of efficacy. 
+Ipamorelin has been used by athletes as a performance-enhancing drug. Currently, Ipamorelin is commonly marketed as a research peptide rather than as an approved pharmaceutical drug.

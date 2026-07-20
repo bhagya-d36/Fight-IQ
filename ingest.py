@@ -1,10 +1,10 @@
 """ingest.py — reads every .md file in ./knowledge-base, splits it into chunks,
-embeds each chunk locally with sentence-transformers, and saves everything to
-vector-store.json.
+embeds each chunk locally with sentence-transformers, and upserts everything
+into a local Chroma vector store (./chroma-store).
 
 Re-run this whenever you edit the knowledge base:  python ingest.py
 Unchanged files are skipped and their existing chunks/embeddings are reused —
-only new or edited files are re-embedded.
+only new, edited, or deleted files touch the store.
 
 Preview chunking without embedding:  python ingest.py --dry-run
 Re-embed everything from scratch:    python ingest.py --force
@@ -14,8 +14,9 @@ import hashlib
 import json
 import re
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
+
+import chromadb
 
 import config
 import embeddings
@@ -23,9 +24,16 @@ from net_fix import prefer_ipv4
 
 prefer_ipv4()
 
+# Some knowledge-base content contains characters outside the Windows
+# console's default codepage (e.g. Rakić); without this, --dry-run's preview
+# printing crashes on them.
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 BASE_DIR = Path(__file__).resolve().parent
 KB_DIR = BASE_DIR / "knowledge-base"
-STORE_FILE = BASE_DIR / "vector-store.json"
+CHROMA_DIR = BASE_DIR / "chroma-store"
+COLLECTION_NAME = "chunks"
+MANIFEST_FILE = CHROMA_DIR / "manifest.json"
 STORE_VERSION = 3
 
 DRY_RUN = "--dry-run" in sys.argv
@@ -101,24 +109,25 @@ def file_sha256(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def load_reusable_store(force: bool) -> dict | None:
-    """Return the existing store if its chunks can be reused as a starting
-    point for incremental re-embedding, else None (triggers a full rebuild).
+def load_manifest(force: bool) -> dict | None:
+    """Return the existing file-hash manifest if the Chroma collection it
+    describes can be reused as a starting point for incremental re-embedding,
+    else None (triggers a full rebuild of the collection).
     """
-    if force or not STORE_FILE.exists():
+    if force or not MANIFEST_FILE.exists():
         return None
     try:
-        store = json.loads(STORE_FILE.read_text(encoding="utf-8"))
+        manifest = json.loads(MANIFEST_FILE.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         return None
     if (
-        store.get("version") != STORE_VERSION
-        or store.get("model") != config.EMBEDDING_MODEL
-        or store.get("chunkChars") != config.MAX_CHUNK_CHARS
-        or store.get("chunkOverlap") != config.MAX_CHUNK_OVERLAP
+        manifest.get("version") != STORE_VERSION
+        or manifest.get("model") != config.EMBEDDING_MODEL
+        or manifest.get("chunkChars") != config.MAX_CHUNK_CHARS
+        or manifest.get("chunkOverlap") != config.MAX_CHUNK_OVERLAP
     ):
         return None
-    return store
+    return manifest
 
 
 def embed_entries(entries: list[dict]) -> None:
@@ -139,64 +148,91 @@ def embed_entries(entries: list[dict]) -> None:
 def main() -> None:
     if not KB_DIR.is_dir():
         sys.exit(f"Knowledge base folder not found: {KB_DIR}")
-    files = sorted(KB_DIR.glob("*.md"))
+    files = sorted(KB_DIR.rglob("*.md"))
     if not files:
         sys.exit("No .md files in knowledge-base/. Add some and re-run.")
 
-    old_store = load_reusable_store(FORCE)
-    old_hashes: dict[str, str] = old_store["files"] if old_store else {}
-    old_entries_by_source: dict[str, list[dict]] = {}
-    for entry in (old_store["entries"] if old_store else []):
-        old_entries_by_source.setdefault(entry["source"], []).append(entry)
+    manifest = load_manifest(FORCE)
+    old_hashes: dict[str, str] = manifest["files"] if manifest else {}
 
-    entries: list[dict] = []
-    to_embed: list[dict] = []
     file_hashes: dict[str, str] = {}
+    to_add: list[dict] = []
     reused_files = 0
     changed_files = 0
 
     for path in files:
+        rel_name = path.relative_to(KB_DIR).as_posix()
         text = path.read_text(encoding="utf-8")
         digest = file_sha256(text)
-        file_hashes[path.name] = digest
+        file_hashes[rel_name] = digest
 
-        if digest == old_hashes.get(path.name):
-            reused = old_entries_by_source.get(path.name, [])
-            entries.extend(reused)
+        if digest == old_hashes.get(rel_name):
             reused_files += 1
-            print(f"{path.name}: unchanged ({len(reused)} chunk(s) reused)")
+            print(f"{rel_name}: unchanged (reusing existing chunks)")
         else:
-            chunks = chunk_markdown(path.name, text)
-            new_entries = [{"source": path.name, "text": chunk} for chunk in chunks]
-            entries.extend(new_entries)
-            to_embed.extend(new_entries)
+            chunks = chunk_markdown(rel_name, text)
+            to_add.extend(
+                {"id": f"{rel_name}::{i}", "source": rel_name, "text": chunk} for i, chunk in enumerate(chunks)
+            )
             changed_files += 1
-            print(f"{path.name}: changed -> {len(chunks)} chunk(s) to embed")
+            print(f"{rel_name}: changed -> {len(chunks)} chunk(s) to embed")
 
-    removed = sorted(set(old_hashes) - {p.name for p in files})
+    removed = sorted(set(old_hashes) - {p.relative_to(KB_DIR).as_posix() for p in files})
     for name in removed:
         print(f"removed: {name}")
 
     if DRY_RUN:
-        for entry in entries:
+        for entry in to_add:
             print(f"\n--- [{entry['source']}] {len(entry['text'])} chars ---")
             print("\n".join(entry["text"].splitlines()[:3]))
-        print(f"\nDry run: {len(entries)} chunks total. No embeddings created.")
+        print(
+            f"\nDry run: {len(to_add)} chunk(s) to embed from {changed_files} changed file(s), "
+            f"{reused_files} file(s) unchanged. No embeddings created."
+        )
         return
 
-    embed_entries(to_embed)
+    client = chromadb.PersistentClient(path=str(CHROMA_DIR))
+    if manifest is None:
+        try:
+            client.delete_collection(COLLECTION_NAME)
+        except Exception:
+            pass
+        collection = client.create_collection(
+            COLLECTION_NAME,
+            embedding_function=None,
+            metadata={
+                "hnsw:space": "cosine",
+                "version": STORE_VERSION,
+                "model": config.EMBEDDING_MODEL,
+                "dim": embeddings.dimension(),
+            },
+        )
+    else:
+        collection = client.get_collection(COLLECTION_NAME)
 
-    STORE_FILE.write_text(
+    changed_sources = {entry["source"] for entry in to_add}
+    for name in set(removed) | changed_sources:
+        collection.delete(where={"source": name})  # clears stale/removed chunks; no-op for brand-new files
+
+    embed_entries(to_add)
+
+    if to_add:
+        collection.add(
+            ids=[e["id"] for e in to_add],
+            embeddings=[e["embedding"] for e in to_add],
+            documents=[e["text"] for e in to_add],
+            metadatas=[{"source": e["source"]} for e in to_add],
+        )
+
+    MANIFEST_FILE.parent.mkdir(parents=True, exist_ok=True)
+    MANIFEST_FILE.write_text(
         json.dumps(
             {
                 "version": STORE_VERSION,
                 "model": config.EMBEDDING_MODEL,
-                "dim": embeddings.dimension(),
                 "chunkChars": config.MAX_CHUNK_CHARS,
                 "chunkOverlap": config.MAX_CHUNK_OVERLAP,
-                "createdAt": datetime.now(timezone.utc).isoformat(),
                 "files": file_hashes,
-                "entries": entries,
             },
             indent=1,
         ),
@@ -204,7 +240,7 @@ def main() -> None:
     )
     print(
         f"Done. {len(files)} files: {changed_files} re-embedded, {reused_files} reused, "
-        f"{len(removed)} removed -> {len(entries)} chunks."
+        f"{len(removed)} removed -> {collection.count()} chunks."
     )
 
 
