@@ -1,14 +1,16 @@
 """rag.py — shared retrieval + grounded-answer logic for chat.py and server.py.
 
-Loads vector-store.json, embeds a question, retrieves the top-K most similar
-chunks, and asks the configured chat LLM to answer using only that context.
+Opens the local Chroma vector store, embeds a question, retrieves the top-K
+most similar chunks, and asks the configured chat LLM to answer using only
+that context.
 """
 
-import json
 import math
 import re
 from collections.abc import Iterator
 from pathlib import Path
+
+import chromadb
 
 import config
 import embeddings
@@ -17,7 +19,13 @@ from net_fix import prefer_ipv4
 prefer_ipv4()
 
 BASE_DIR = Path(__file__).resolve().parent
-STORE_FILE = BASE_DIR / "vector-store.json"
+CHROMA_DIR = BASE_DIR / "chroma-store"
+COLLECTION_NAME = "chunks"
+
+# How many candidates the ANN index returns for hybrid re-ranking. Must be
+# wide enough that a strong keyword match outside the top cosine hits still
+# gets pulled into the RRF fusion below.
+DENSE_CANDIDATE_POOL = 100
 
 # Tunables live in config.py (env-overridable); aliased here for convenience.
 CHAT_MODEL = config.CHAT_MODEL
@@ -55,37 +63,40 @@ def validate_store(store: dict) -> None:
     """Raise ValueError with an actionable message if the store looks unusable."""
     entries = store.get("entries")
     if not entries:
-        raise ValueError("vector-store.json has no entries. Run `python ingest.py --force`.")
+        raise ValueError("Chroma store has no entries. Run `python ingest.py --force`.")
     if store.get("model") != config.EMBEDDING_MODEL or store.get("dim") != embeddings.dimension():
         raise ValueError(
-            f"vector-store.json was built with model={store.get('model')!r} "
+            f"Chroma store was built with model={store.get('model')!r} "
             f"dim={store.get('dim')!r}, but the app is configured for "
             f"model={config.EMBEDDING_MODEL!r} dim={embeddings.dimension()!r}. "
-            "Run `python ingest.py --force` to rebuild it."
-        )
-    if len(entries[0].get("embedding", [])) != store["dim"]:
-        raise ValueError(
-            "vector-store.json entries don't match its declared dim. "
             "Run `python ingest.py --force` to rebuild it."
         )
 
 
 def load_store() -> dict:
-    if not STORE_FILE.exists():
-        raise FileNotFoundError("vector-store.json not found. Run `python ingest.py` first.")
+    """Open the Chroma collection and pull chunk text + metadata into memory
+    for BM25 (embeddings stay in Chroma — that's what keeps this cheap)."""
+    client = chromadb.PersistentClient(path=str(CHROMA_DIR))
     try:
-        store = json.loads(STORE_FILE.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as err:
-        raise ValueError("vector-store.json is corrupt. Run `python ingest.py --force`.") from err
+        collection = client.get_collection(COLLECTION_NAME)
+    except chromadb.errors.NotFoundError as err:
+        raise FileNotFoundError("Chroma store not found. Run `python ingest.py` first.") from err
+
+    meta = collection.metadata or {}
+    got = collection.get(include=["documents", "metadatas"])
+    entries = [{"source": m["source"], "text": d} for m, d in zip(got["metadatas"], got["documents"])]
+
+    store = {
+        "collection": collection,
+        "entries": entries,
+        "ids": got["ids"],
+        "_id_to_idx": {cid: i for i, cid in enumerate(got["ids"])},
+        "model": meta.get("model"),
+        "dim": meta.get("dim"),
+        "version": meta.get("version"),
+    }
     validate_store(store)
     return store
-
-
-def cosine_similarity(a: list[float], b: list[float]) -> float:
-    dot = sum(x * y for x, y in zip(a, b))
-    norm_a = math.sqrt(sum(x * x for x in a))
-    norm_b = math.sqrt(sum(y * y for y in b))
-    return dot / (norm_a * norm_b)
 
 
 def _tokenize(text: str) -> list[str]:
@@ -142,6 +153,29 @@ def _ranks(scores: list[float]) -> list[int]:
     return rank
 
 
+def _cosine_similarity(a: list[float], b: list[float]) -> float:
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = math.sqrt(sum(x * x for x in a))
+    norm_b = math.sqrt(sum(y * y for y in b))
+    return dot / (norm_a * norm_b)
+
+
+def _dense_pool(store: dict, q_vec: list[float], pool_size: int) -> tuple[list[str], list[dict], list[float]]:
+    """Top `pool_size` chunks by cosine similarity, via Chroma's HNSW index.
+    Returns (chunk ids, entries, cosine scores), descending by similarity.
+
+    Chroma is built with hnsw:space="cosine", so it returns *distance*
+    (1 - cosine similarity), not similarity — converted back here.
+    """
+    res = store["collection"].query(
+        query_embeddings=[q_vec], n_results=pool_size, include=["documents", "metadatas", "distances"]
+    )
+    ids = res["ids"][0]
+    pool_entries = [{"source": m["source"], "text": d} for m, d in zip(res["metadatas"][0], res["documents"][0])]
+    pool_cos = [1.0 - dist for dist in res["distances"][0]]
+    return ids, pool_entries, pool_cos
+
+
 def retrieve(
     store: dict,
     question: str,
@@ -152,30 +186,63 @@ def retrieve(
     if hybrid is None:
         hybrid = config.HYBRID_SEARCH
 
+    n = len(store["entries"])
+    if n == 0:
+        return []
+
     q_vec = embeddings.embed_texts([question])[0]
-    cos = [cosine_similarity(q_vec, e["embedding"]) for e in store["entries"]]
-    scored = [{**e, "score": cos[i]} for i, e in enumerate(store["entries"])]
+    pool_size = min(max(top_k * 10, DENSE_CANDIDATE_POOL), n)
+    pool_ids, pool_entries, pool_cos = _dense_pool(store, q_vec, pool_size)
 
-    if hybrid:
-        bm25 = _bm25_scores(store, question)
-        if any(s > 0 for s in bm25):
-            # Grounding gate stays cosine-only: keyword overlap alone can
-            # never rescue a question the KB has no real answer for.
-            if (max(cos) if cos else 0.0) < min_similarity:
-                return []
-            cos_rank, kw_rank = _ranks(cos), _ranks(bm25)
+    def top_by_cosine() -> list[dict]:
+        scored = [{**e, "score": c} for e, c in zip(pool_entries, pool_cos)]
+        scored.sort(key=lambda e: e["score"], reverse=True)
+        return [e for e in scored[:top_k] if e["score"] >= min_similarity]
 
-            def rrf(i: int) -> float:
-                r = 1.0 / (config.RRF_K + cos_rank[i])
-                if bm25[i] > 0:
-                    r += 1.0 / (config.RRF_K + kw_rank[i])
-                return r
+    if not hybrid:
+        return top_by_cosine()
 
-            order = sorted(range(len(scored)), key=lambda i: (-rrf(i), -cos[i], i))
-            return [scored[i] for i in order[:top_k]]
+    bm25 = _bm25_scores(store, question)
+    if not any(s > 0 for s in bm25):
+        return top_by_cosine()
 
-    scored.sort(key=lambda e: e["score"], reverse=True)
-    return [e for e in scored[:top_k] if e["score"] >= min_similarity]
+    # Grounding gate stays cosine-only: keyword overlap alone can never
+    # rescue a question the KB has no real answer for.
+    if (max(pool_cos) if pool_cos else 0.0) < min_similarity:
+        return []
+
+    # RRF fuses the dense candidate pool with every keyword-matching entry
+    # (BM25 is cheap over the full corpus; the ANN pool is not exhaustive).
+    id_to_idx = store["_id_to_idx"]
+    pool_idx = [id_to_idx[cid] for cid in pool_ids]
+    cos_by_idx = dict(zip(pool_idx, pool_cos))
+    kw_idx = [i for i, s in enumerate(bm25) if s > 0]
+    candidate_idx = list(dict.fromkeys(pool_idx + kw_idx))  # ordered dedup
+
+    # A keyword-only candidate (outside the dense pool) has no cosine score
+    # yet — fetch its embedding directly so the displayed score is always a
+    # real similarity, never a rank-only placeholder.
+    missing_idx = [i for i in candidate_idx if i not in cos_by_idx]
+    if missing_idx:
+        ids = store["ids"]
+        got = store["collection"].get(ids=[ids[i] for i in missing_idx], include=["embeddings"])
+        emb_by_id = dict(zip(got["ids"], got["embeddings"]))
+        for i in missing_idx:
+            cos_by_idx[i] = _cosine_similarity(q_vec, emb_by_id[ids[i]])
+
+    cand_cos = [cos_by_idx[i] for i in candidate_idx]
+    cand_bm25 = [bm25[i] for i in candidate_idx]
+    cos_rank, kw_rank = _ranks(cand_cos), _ranks(cand_bm25)
+
+    def rrf(pos: int) -> float:
+        r = 1.0 / (config.RRF_K + cos_rank[pos])
+        if cand_bm25[pos] > 0:
+            r += 1.0 / (config.RRF_K + kw_rank[pos])
+        return r
+
+    order = sorted(range(len(candidate_idx)), key=lambda p: (-rrf(p), -cand_cos[p], p))
+    entries = store["entries"]
+    return [{**entries[candidate_idx[p]], "score": cand_cos[p]} for p in order[:top_k]]
 
 
 def build_context(hits: list[dict]) -> str:

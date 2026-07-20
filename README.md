@@ -5,7 +5,7 @@ Contains informations regarding champions, rankings, rules, weight classes, and 
 files in `knowledge-base/`, embed them, and chat with an assistant that
 answers only from that content, with citations back to the source.
 
-## Setup (one time)
+## Setup
 
 ```
 python -m venv .venv
@@ -25,7 +25,7 @@ For development, install test/lint tooling too: `pip install -r requirements-dev
 ## Usage
 
 ```
-python ingest.py            # embed the knowledge base -> vector-store.json
+python ingest.py            # embed the knowledge base -> chroma-store/ (local Chroma vector DB)
 python chat.py               # start chatting (terminal)
 python ingest.py --dry-run   # preview chunking without embedding
 python ingest.py --force     # re-embed every file, ignoring the cache
@@ -53,7 +53,7 @@ sessions expire), with each session's own chat history capped at
 
 Override the bind address/port with env vars if needed: `HOST`, `PORT` (defaults
 `127.0.0.1:8000`). To deploy, run `uvicorn server:app --host 0.0.0.0 --port $PORT`
-on any host that has the chosen provider's API key set and `vector-store.json` present.
+on any host that has the chosen provider's API key set and `chroma-store/` present.
 
 The server also exposes `GET /health` (chunk count, model, store version, live
 session count) for deploy probes, caps question length at `MAX_QUESTION_CHARS`
@@ -78,6 +78,8 @@ A few things beyond plain vector search improve retrieval and answers:
   reciprocal rank fusion, so exact names/records aren't lost to semantically-similar
   chunks. The no-match decision stays cosine-only — keyword overlap alone can't
   manufacture an answer. Toggle with `HYBRID_SEARCH`; fusion constant via `RRF_K`.
+  Vector search itself runs on Chroma's HNSW index — approximate, not exhaustive,
+  so at very large corpus sizes recall is ~99%+ rather than exact.
 - **Inline citations** — answers cite `[1][2]`-style bracket numbers back to the
   numbered CONTEXT excerpts; the web UI links them to the matching source row.
 
@@ -85,7 +87,7 @@ A few things beyond plain vector search improve retrieval and answers:
 
 | File | Role |
 |---|---|
-| `ingest.py` | Chunk + locally embed the knowledge base into `vector-store.json` (incremental, `--force` to rebuild) |
+| `ingest.py` | Chunk + locally embed the knowledge base into `chroma-store/` (incremental, `--force` to rebuild) |
 | `embeddings.py` | Local sentence-transformers embedding model (no API key) |
 | `llm.py` | Chat-provider abstraction (`ChatProvider`) + adapters for Gemini, OpenAI-compatible, and Anthropic |
 | `rag.py` | Shared retrieval + grounded multi-turn chat logic (`GroundedChat`) used by both entry points |

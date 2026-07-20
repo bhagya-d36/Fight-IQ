@@ -1,13 +1,8 @@
 import rag
 
 
-def _store():
-    return {
-        "dim": 3,
-        "entries": [
-            {"source": "a.md", "text": "exact match", "embedding": [1.0, 0.0, 0.0]},
-        ],
-    }
+def _store(make_store):
+    return make_store([{"source": "a.md", "text": "exact match", "embedding": [1.0, 0.0, 0.0]}])
 
 
 def test_system_instruction_includes_citation_guidance():
@@ -23,9 +18,9 @@ def test_build_prompt_shape():
     assert prompt.endswith("QUESTION: who is champ?")
 
 
-def test_ask_sends_context_and_question(fake_provider):
+def test_ask_sends_context_and_question(make_store, fake_provider):
     provider = fake_provider(reply="the champ is X")
-    chat = rag.GroundedChat(_store(), provider)
+    chat = rag.GroundedChat(_store(make_store), provider)
 
     text, hits = chat.ask("who is champ?")
 
@@ -36,10 +31,10 @@ def test_ask_sends_context_and_question(fake_provider):
     assert "QUESTION: who is champ?" in sent
 
 
-def test_ask_no_hits_returns_no_match_without_sending(fake_provider, monkeypatch):
+def test_ask_no_hits_returns_no_match_without_sending(make_store, fake_provider, monkeypatch):
     provider = fake_provider()
     monkeypatch.setattr(rag, "retrieve", lambda *a, **k: [])
-    chat = rag.GroundedChat(_store(), provider)
+    chat = rag.GroundedChat(_store(make_store), provider)
 
     text, hits = chat.ask("anything")
 
@@ -48,18 +43,18 @@ def test_ask_no_hits_returns_no_match_without_sending(fake_provider, monkeypatch
     assert provider.chat_calls == []
 
 
-def test_ask_empty_model_reply(fake_provider):
+def test_ask_empty_model_reply(make_store, fake_provider):
     provider = fake_provider(reply="")
-    chat = rag.GroundedChat(_store(), provider)
+    chat = rag.GroundedChat(_store(make_store), provider)
 
     text, _hits = chat.ask("who is champ?")
 
     assert text == rag.EMPTY_RESPONSE_ANSWER
 
 
-def test_ask_stream_yields_reply_pieces(fake_provider):
+def test_ask_stream_yields_reply_pieces(make_store, fake_provider):
     provider = fake_provider(reply="a b c")
-    chat = rag.GroundedChat(_store(), provider)
+    chat = rag.GroundedChat(_store(make_store), provider)
 
     hits, chunks = chat.ask_stream("who is champ?")
 
@@ -67,10 +62,10 @@ def test_ask_stream_yields_reply_pieces(fake_provider):
     assert "".join(chunks) == "abc"
 
 
-def test_ask_stream_no_hits_yields_no_match(fake_provider, monkeypatch):
+def test_ask_stream_no_hits_yields_no_match(make_store, fake_provider, monkeypatch):
     provider = fake_provider()
     monkeypatch.setattr(rag, "retrieve", lambda *a, **k: [])
-    chat = rag.GroundedChat(_store(), provider)
+    chat = rag.GroundedChat(_store(make_store), provider)
 
     hits, chunks = chat.ask_stream("anything")
 
@@ -78,9 +73,9 @@ def test_ask_stream_no_hits_yields_no_match(fake_provider, monkeypatch):
     assert list(chunks) == [rag.NO_MATCH_ANSWER]
 
 
-def test_history_trimmed_after_max_turns(fake_provider):
+def test_history_trimmed_after_max_turns(make_store, fake_provider):
     provider = fake_provider(reply="ok")
-    chat = rag.GroundedChat(_store(), provider, max_turns=1)
+    chat = rag.GroundedChat(_store(make_store), provider, max_turns=1)
 
     chat.ask("q1")
     chat.ask("q2")
@@ -88,5 +83,3 @@ def test_history_trimmed_after_max_turns(fake_provider):
 
     assert len(chat._turns) == 1
     assert chat._turns[0]["q"] == "q3"
-
-

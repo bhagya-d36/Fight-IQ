@@ -10,7 +10,7 @@
   href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=Barlow:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap"
   rel="stylesheet"
 />
-<link rel="stylesheet" href="/styles.css?v=7" />
+<link rel="stylesheet" href="/styles.css?v=9" />
 </head>
 <body>
 
@@ -22,7 +22,7 @@
   </div>
   <div class="statusbar__actions">
     <button class="statusbar__new" id="new-chat" type="button">NEW CHAT</button>
-    <div class="statusbar__chip" id="status-chip" data-state="idle">
+    <div class="statusbar__chip" id="status-chip" data-state="idle" role="status" aria-live="polite">
       <span id="status-text">READY</span>
     </div>
   </div>
@@ -32,7 +32,7 @@
   <section class="transcript" id="transcript">
     <div class="hero" id="hero">
       <h1 class="hero__title">FightIQ</h1>
-      <p class="hero__sub">AI-Powered Fight Game Library</p>
+      <p class="hero__sub">AI-Powered Mixed Martial Arts Library</p>
       <div class="chips" id="suggested-chips">
         <button class="chip" type="button" data-q="Who is the current lightweight champion?">Lightweight champion?</button>
         <button class="chip" type="button" data-q="What are the UFC weight classes?">Weight classes</button>
@@ -85,7 +85,7 @@
   </div>
 </template>
 
-<script src="/app.js?v=6"></script>
+<script src="/app.js?v=7"></script>
 </body>
 </html>
 

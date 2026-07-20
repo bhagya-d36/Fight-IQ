@@ -7,18 +7,13 @@ import config
 import llm
 import rag
 
-SAMPLE_STORE = {
-    "dim": 3,
-    "entries": [
-        {"source": "a.md", "text": "exact match", "embedding": [1.0, 0.0, 0.0]},
-    ],
-}
+SAMPLE_ENTRIES = [{"source": "a.md", "text": "exact match", "embedding": [1.0, 0.0, 0.0]}]
 
 
 @pytest.fixture
-def server_app(monkeypatch, fake_provider):
+def server_app(monkeypatch, fake_provider, make_store):
     provider = fake_provider(reply="canned answer")
-    monkeypatch.setattr(rag, "load_store", lambda: SAMPLE_STORE)
+    monkeypatch.setattr(rag, "load_store", lambda: make_store(SAMPLE_ENTRIES))
     monkeypatch.setattr(llm, "make_chat_provider", lambda: provider)
     sys.modules.pop("server", None)
     import server  # re-imports fresh so it binds store/provider via the patched functions
@@ -119,9 +114,9 @@ def test_stream_rejects_query_over_max_length(server_app):
     assert res.status_code == 422
 
 
-def test_rate_limit_returns_429_when_exceeded(monkeypatch, fake_provider):
+def test_rate_limit_returns_429_when_exceeded(monkeypatch, fake_provider, make_store):
     provider = fake_provider(reply="canned answer")
-    monkeypatch.setattr(rag, "load_store", lambda: SAMPLE_STORE)
+    monkeypatch.setattr(rag, "load_store", lambda: make_store(SAMPLE_ENTRIES))
     monkeypatch.setattr(llm, "make_chat_provider", lambda: provider)
     monkeypatch.setattr(config, "RATE_LIMIT_REQUESTS", 1)
     sys.modules.pop("server", None)
@@ -138,9 +133,9 @@ def test_rate_limit_returns_429_when_exceeded(monkeypatch, fake_provider):
     assert res2.status_code == 429
 
 
-def test_health_not_rate_limited(monkeypatch, fake_provider):
+def test_health_not_rate_limited(monkeypatch, fake_provider, make_store):
     provider = fake_provider(reply="canned answer")
-    monkeypatch.setattr(rag, "load_store", lambda: SAMPLE_STORE)
+    monkeypatch.setattr(rag, "load_store", lambda: make_store(SAMPLE_ENTRIES))
     monkeypatch.setattr(llm, "make_chat_provider", lambda: provider)
     monkeypatch.setattr(config, "RATE_LIMIT_REQUESTS", 1)
     sys.modules.pop("server", None)
@@ -155,5 +150,3 @@ def test_health_not_rate_limited(monkeypatch, fake_provider):
         sys.modules.pop("server", None)
 
     assert health_res.status_code == 200
-
-
