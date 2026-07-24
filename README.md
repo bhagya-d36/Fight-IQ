@@ -19,14 +19,18 @@ flowchart TD
     RAG --> LLM["llm.py<br/>ChatProvider"]
     LLM --> ANS["grounded answer<br/>+ citations"]
 
-    RAG -.-> CHAT["chat.py<br/>(terminal)"]
-    RAG -.-> SRV["server.py<br/>FastAPI"]
+    ANS --> CHAT["chat.py<br/>terminal output"]
+    ANS --> SRV["server.py<br/>FastAPI"]
     SRV --> WEB["web/<br/>chat UI"]
+
+    class ANS,CHAT,SRV,WEB output
+    classDef output fill:#3a1414,stroke:#d20a0a,stroke-width:2px,color:#f5f5f5
 ```
 
 `ingest.py` embeds `knowledge-base/` into the Chroma store once; every question then
-runs through `rag.py`'s shared retrieval + grounding logic, whether it comes from the
-terminal (`chat.py`) or the web UI (`server.py`).
+runs through `rag.py`'s shared retrieval + grounding logic. The highlighted branch is
+where the answer actually surfaces to a user — printed by `chat.py` in the terminal, or
+rendered live in the `web/` chat UI via `server.py`.
 
 ## Setup
 
