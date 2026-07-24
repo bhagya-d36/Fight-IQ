@@ -5,7 +5,7 @@ Contains informations regarding champions, rankings, rules, weight classes, and 
 files in `knowledge-base/`, embed them, and chat with an assistant that
 answers only from that content, with citations back to the source.
 
-![FightIQ web UI answering a grounded question, with cited sources expanded](docs/screenshot.png)
+![FightIQ web UI in action — asking a question and getting a grounded, cited answer](docs/recording.gif)
 
 ## Architecture
 
