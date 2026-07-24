@@ -14,7 +14,7 @@ flowchart TD
     KB["knowledge-base/*.md"] -->|chunk + embed| ING["ingest.py"]
     ING --> STORE[("chroma-store/<br/>Chroma vector DB")]
 
-    Q["user question"] --> RAG["rag.py<br/>GroundedChat<br/>(hybrid search + query rewrite)"]
+    Q["user question"] --> RAG["rag.py<br/>GroundedChat<br/>hybrid search<br/>+ query rewrite"]
     STORE --> RAG
     RAG --> LLM["llm.py<br/>ChatProvider"]
     LLM --> ANS["grounded answer<br/>+ citations"]
