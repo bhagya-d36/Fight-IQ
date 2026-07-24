@@ -5,6 +5,29 @@ Contains informations regarding champions, rankings, rules, weight classes, and 
 files in `knowledge-base/`, embed them, and chat with an assistant that
 answers only from that content, with citations back to the source.
 
+![FightIQ web UI answering a grounded question, with cited sources expanded](docs/screenshot.png)
+
+## Architecture
+
+```mermaid
+flowchart TD
+    KB["knowledge-base/*.md"] -->|chunk + embed| ING["ingest.py"]
+    ING --> STORE[("chroma-store/<br/>Chroma vector DB")]
+
+    Q["user question"] --> RAG["rag.py<br/>GroundedChat<br/>(hybrid search + query rewrite)"]
+    STORE --> RAG
+    RAG --> LLM["llm.py<br/>ChatProvider"]
+    LLM --> ANS["grounded answer<br/>+ citations"]
+
+    RAG -.-> CHAT["chat.py<br/>(terminal)"]
+    RAG -.-> SRV["server.py<br/>FastAPI"]
+    SRV --> WEB["web/<br/>chat UI"]
+```
+
+`ingest.py` embeds `knowledge-base/` into the Chroma store once; every question then
+runs through `rag.py`'s shared retrieval + grounding logic, whether it comes from the
+terminal (`chat.py`) or the web UI (`server.py`).
+
 ## Setup
 
 ```
