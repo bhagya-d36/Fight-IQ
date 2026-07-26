@@ -15,17 +15,17 @@ cold-start while it reloads the embedding model and vector store.
 
 ```mermaid
 flowchart TD
-    KB["knowledge-base/*.md"] -->|chunk + embed| ING["ingest.py"]
-    ING --> STORE[("chroma-store/<br/>Chroma vector DB")]
+    KB["Knowledge Base"] -->|Chunk + Embed| ING["ingest.py"]
+    ING --> STORE[("Chroma Vector DB")]
 
-    Q["user question"] --> RAG["rag.py<br/>GroundedChat<br/>hybrid search<br/>+ query rewrite"]
+    Q["User Question"] --> RAG["rag.py<br/>Grounded Chat<br/>+ Hybrid Search<br/>+ Query Rewrite"]
     STORE --> RAG
-    RAG --> LLM["llm.py<br/>ChatProvider"]
-    LLM --> ANS["grounded answer<br/>+ citations"]
+    RAG --> LLM["llm.py<br/>Chat Provider"]
+    LLM --> ANS["Grounded answer<br/>+ Sources"]
 
-    ANS --> CHAT["chat.py<br/>terminal output"]
+    ANS --> CHAT["chat.py<br/>Terminal Output"]
     ANS --> SRV["server.py<br/>FastAPI"]
-    SRV --> WEB["web/<br/>chat UI"]
+    SRV --> WEB["Web UI"]
 
     class ANS,CHAT,SRV,WEB output
     classDef output fill:#3a1414,stroke:#d20a0a,stroke-width:2px,color:#f5f5f5
