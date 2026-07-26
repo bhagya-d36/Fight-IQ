@@ -1,0 +1,8 @@
+.git/
+.venv/
+__pycache__/
+chroma-store/
+docs/
+tests/
+tutorial/
+.env

@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+.git/
+Dockerfile
+.dockerignore
+chroma-store/
+docs/
+tests/
+tutorial/
+.env
+*.md
+!README.md

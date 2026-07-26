@@ -5,6 +5,10 @@ Contains informations regarding champions, rankings, rules, weight classes, and 
 files in `knowledge-base/`, embed them, and chat with an assistant that
 answers only from that content, with citations back to the source.
 
+**Live demo:** https://fightiq-683761710868.us-central1.run.app — deployed on Google
+Cloud Run; scales to zero, so the first request after idle time can take 30-60s to
+cold-start while it reloads the embedding model and vector store.
+
 ![FightIQ web UI in action — asking a question and getting a grounded, cited answer](docs/recording.gif)
 
 ## Architecture
@@ -82,6 +86,17 @@ Override the bind address/port with env vars if needed: `HOST`, `PORT` (defaults
 `127.0.0.1:8000`). To deploy, run `uvicorn server:app --host 0.0.0.0 --port $PORT`
 on any host that has the chosen provider's API key set and `chroma-store/` present.
 
+A `Dockerfile` is included for container-based deploys — it embeds the knowledge
+base into the image at build time (`RUN python ingest.py`), so no separate volume
+or build step is needed at runtime. The live demo above runs this image on Cloud
+Run (`--max-instances 1`, since sessions and rate-limiting are in-memory per
+process — see below):
+```
+gcloud run deploy fightiq --source . --region us-central1 --allow-unauthenticated \
+  --memory 2Gi --cpu 2 --max-instances 1 --cpu-boost \
+  --set-env-vars GEMINI_API_KEY=<key>,RATE_LIMIT_REQUESTS=120
+```
+
 The server also exposes `GET /health` (chunk count, model, store version, live
 session count) for deploy probes, caps question length at `MAX_QUESTION_CHARS`
 (422 if exceeded), and rate-limits `/api/ask*` per client IP — `RATE_LIMIT_REQUESTS`
@@ -124,6 +139,7 @@ A few things beyond plain vector search improve retrieval and answers:
 | `chat.py` | Terminal chat: retrieve top chunks, grounded LLM reply, multi-turn memory |
 | `server.py` | FastAPI app: `/api/ask`, `/api/ask/stream` (SSE), session-aware, serves `web/` |
 | `web/` | Hand-built frontend (`index.html`, `styles.css`, `app.js`) |
+| `Dockerfile` | Container build for deploy — bakes the vector store in at build time |
 | `tests/` | Offline pytest suite (`pytest -q`) — no network calls |
 | `requirements.txt` | Pinned runtime dependencies |
 | `requirements-dev.txt` | Runtime deps plus `pytest`/`ruff` for development |

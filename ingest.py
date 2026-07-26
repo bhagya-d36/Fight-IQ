@@ -217,12 +217,15 @@ def main() -> None:
     embed_entries(to_add)
 
     if to_add:
-        collection.add(
-            ids=[e["id"] for e in to_add],
-            embeddings=[e["embedding"] for e in to_add],
-            documents=[e["text"] for e in to_add],
-            metadatas=[{"source": e["source"]} for e in to_add],
-        )
+        batch_size = client.get_max_batch_size()  # a fresh ingest can exceed Chroma's per-call cap
+        for i in range(0, len(to_add), batch_size):
+            batch = to_add[i : i + batch_size]
+            collection.add(
+                ids=[e["id"] for e in batch],
+                embeddings=[e["embedding"] for e in batch],
+                documents=[e["text"] for e in batch],
+                metadatas=[{"source": e["source"]} for e in batch],
+            )
 
     MANIFEST_FILE.parent.mkdir(parents=True, exist_ok=True)
     MANIFEST_FILE.write_text(
