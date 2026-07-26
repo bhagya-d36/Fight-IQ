@@ -5,11 +5,11 @@ Contains informations regarding champions, rankings, rules, weight classes, and 
 files in `knowledge-base/`, embed them, and chat with an assistant that
 answers only from that content, with citations back to the source.
 
-**Live demo:** https://fightiq-683761710868.us-central1.run.app — deployed on Google
+**Live demo:** https://fightiq-683761710868.us-central1.run.app, deployed on Google
 Cloud Run; scales to zero, so the first request after idle time can take 30-60s to
 cold-start while it reloads the embedding model and vector store.
 
-![FightIQ web UI in action — asking a question and getting a grounded, cited answer](docs/recording.gif)
+![FightIQ web UI in action - asking a question and getting a grounded, cited answer](docs/recording.gif)
 
 ## Architecture
 
@@ -33,7 +33,7 @@ flowchart TD
 
 `ingest.py` embeds `knowledge-base/` into the Chroma store once; every question then
 runs through `rag.py`'s shared retrieval + grounding logic. The highlighted branch is
-where the answer actually surfaces to a user — printed by `chat.py` in the terminal, or
+where the answer actually surfaces to a user, printed by `chat.py` in the terminal, or
 rendered live in the `web/` chat UI via `server.py`.
 
 ## Setup
@@ -47,7 +47,7 @@ pip install -r requirements.txt
 Then copy `.env.example` to `.env`, set `LLM_PROVIDER` to whichever chat LLM
 you want (`gemini`, `openai`, `anthropic`, `deepseek`, or `kimi`), and put that
 provider's API key in it. `.env.example` also lists optional overrides (model
-names, `TOP_K`, `MIN_SIMILARITY`, timeouts, etc.) — defaults live in
+names, `TOP_K`, `MIN_SIMILARITY`, timeouts, etc.) - defaults live in
 `config.py`. Embeddings run locally (`sentence-transformers`, no key needed),
 so `ingest.py` never requires an API key.
 
